@@ -1,0 +1,29 @@
+{
+    "compilerOptions": {
+      "removeComments": true,
+      "module": "commonjs",
+      "declaration": true,
+      "target": "es6",
+      "sourceMap": true,
+      "noImplicitAny": false,
+      "noImplicitThis": false,
+      "outDir": "./dist",
+      "rootDir":"./",
+      "moduleResolution": "node",
+      "pretty": true,
+      "esModuleInterop": true,
+      "strict": false
+    },
+    "compileOnSave": true,
+    "exclude": [
+      "node_modules",
+      "dist"
+    ],
+    "include":[
+        "lib",
+        "cli",
+        "api",
+        "ui"
+    ]
+  }
+  

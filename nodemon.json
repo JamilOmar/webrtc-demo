@@ -1,0 +1,6 @@
+{
+    "watch": ["api", "lib" , "ui"],
+    "ext": "ts",
+    "ignore": ["cli"],
+    "exec": "npm run start:dev"
+  }
