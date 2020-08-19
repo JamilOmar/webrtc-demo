@@ -1,4 +1,5 @@
 import express from "express";
+import {SignalSteps ,SocketServerEvents} from '../lib/';
 import * as path from "path";
 import {Server, ServerOptions} from 'socket.io';
 import os = require('os');
@@ -16,15 +17,12 @@ const io = SocketIOServer(expressServer,{
 io.on('connection',  (socket) =>{
 
     // Handle 'message' messages
-socket.on('message', function (message) {
-    log("S --> got message: ", message);
-    // channel-only broadcast...
-    socket.broadcast.emit('message', message);
+socket.on(SocketServerEvents.Message, (message) => {
+    socket.broadcast.emit(SocketServerEvents.Message, message);
 });
 
-// Handle 'create or join' messages
-socket.on('create or join', async function (room) {
-    var clients =  await new Promise((resolve, reject) => {
+async function getSocketClients(room):Promise<{length:number}>{
+   return await new Promise((resolve, reject) => {
         io.in(room).clients((error,clients)=>{
             console.log(clients)
             if(error){
@@ -33,26 +31,30 @@ socket.on('create or join', async function (room) {
                 resolve(clients);
             }
         })});
-    var numClients = (clients as any).length;
+}
+
+socket.on(SocketServerEvents.Initialize, async  (room) => {
+    const clients = await getSocketClients(room);
+    const numClients = clients.length;
     // First client joining...
     if (numClients == 0){
         socket.join(room);
-        socket.emit('created', room, socket.id);
+        socket.emit(SocketServerEvents.Created, room, socket.id);
     } else if (numClients == 1) {
     // Second client joining...
-        io.in(room).emit('join', room);
+        io.in(room).emit(SocketServerEvents.Join, room);
         socket.join(room);
-        socket.emit('joined', room, socket.id);
-        io.in(room).emit('ready');
+        socket.emit(SocketServerEvents.Joined, room, socket.id);
+        io.in(room).emit(SocketServerEvents.Ready);
     } else { // max two clients
-        socket.emit('full', room);
+        socket.emit(SocketServerEvents.IsFull, room);
     }
 });
 
-socket.on('ipaddr', function() {
+socket.on('ipaddr', () => {
     var ifaces = os.networkInterfaces();
     for (var dev in ifaces) {
-      ifaces[dev].forEach(function(details) {
+      ifaces[dev].forEach((details) =>{
         if (details.family === 'IPv4' && details.address !== '127.0.0.1') {
           socket.emit('ipaddr', details.address);
         }
@@ -60,7 +62,7 @@ socket.on('ipaddr', function() {
     }
   });
 
-  socket.on('bye', function(){
+  socket.on(SignalSteps.Terminate, () =>{
     console.log('received bye');
   });
 

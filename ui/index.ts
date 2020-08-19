@@ -1,5 +1,6 @@
 'use strict';
 import * as _ from 'lodash';
+import {SignalSteps, SocketServerEvents} from '../lib/';
 var isChannelReady = false;
 var isInitiator = false;
 var isStarted = false;
@@ -9,9 +10,11 @@ var remoteStream;
 var turnReady;
 
 const pcConfig = {
-  'iceServers': [{
-    'urls': 'stun:stun.l.google.com:19302'
-  }]
+  iceServers: [
+    {
+      urls: 'stun:stun.l.google.com:19302'
+    }
+  ]
 };
 
 // Set up audio and video regardless of what devices are present.
@@ -29,108 +32,97 @@ var room = 'foo';
 var socket = io.connect();
 
 if (room !== '') {
-  socket.emit('create or join', room);
+  socket.emit(SocketServerEvents.Initialize, room);
   console.log('Attempted to create or  join room', room);
 }
 
-socket.on('created', function(room) {
+socket.on(SocketServerEvents.Created, function (room) {
   console.log('Created room ' + room);
   isInitiator = true;
 });
 
-socket.on('full', function(room) {
+socket.on(SocketServerEvents.IsFull, function (room) {
   console.log('Room ' + room + ' is full');
 });
 
-socket.on('join', function (room){
+socket.on(SocketServerEvents.Join, function (room) {
   console.log('Another peer made a request to join room ' + room);
   console.log('This peer is the initiator of room ' + room + '!');
   isChannelReady = true;
 });
 
-socket.on('joined', function(room) {
+socket.on(SocketServerEvents.Joined, function (room) {
   console.log('joined: ' + room);
   isChannelReady = true;
 });
 
-socket.on('log', function(array) {
+socket.on('log', function (array) {
   console.log.apply(console, array);
 });
 
 ////////////////////////////////////////////////
 
-function sendMessage(message) {
+function sendMessage(message: Object | string) {
   console.log('Client sending message: ', message);
-
-  let msg ={};
-  if(typeof message === 'object')
-  {
-    msg = _.set(message,'channel',room);
-    console.log(msg)
-
-  }else{
-    msg = {message , channel:room}
-
-  }
-  socket.emit('message', msg);
+  const msg = (typeof message === 'object') ?_.set(message, 'channel', room) :{message, channel: room};
+  socket.emit(SocketServerEvents.Message, msg);
 }
 
 // This client receives a message
-socket.on('message', function(message) {
-  console.log('Client received message:', message);
-  debugger
-  switch(message.type){
-    case 'initialize':
+socket.on(SocketServerEvents.Message,  (message) => {
+  switch (message.type) {
+    case SignalSteps.MediaCreated:
       maybeStart();
       break;
-    case 'offer':
+    case  SignalSteps.Offer:
       if (!isInitiator && !isStarted) {
         maybeStart();
       }
       pc.setRemoteDescription(new RTCSessionDescription(message));
       doAnswer();
       break;
-      case 'answer':
-        if (isStarted) {
-          pc.setRemoteDescription(new RTCSessionDescription(message));
-        }
-        break;
-        case 'candidate':
-          if (isStarted) {
-            var candidate = new RTCIceCandidate({
-              sdpMLineIndex: message.label,
-              candidate: message.candidate
-            });
-            pc.addIceCandidate(candidate);
-          }
-          break;   
-        case 'bye':
-          if (isStarted) {
-            handleRemoteHangup();
-          }
-          break;
+    case SignalSteps.Answer:
+      if (isStarted) {
+        pc.setRemoteDescription(new RTCSessionDescription(message));
+      }
+      break;
+    case SignalSteps.Candidate:
+      if (isStarted) {
+        const candidate = new RTCIceCandidate({
+          sdpMLineIndex: message.label,
+          candidate: message.candidate
+        });
+        pc.addIceCandidate(candidate);
+      }
+      break;
+    case SignalSteps.Terminate:
+      if (isStarted) {
+        handleRemoteHangup();
+      }
+      break;
   }
 });
 
 ////////////////////////////////////////////////////
 
-var localVideo =  <HTMLVideoElement> document.querySelector('#localVideo');
-var remoteVideo =   <HTMLVideoElement> document.querySelector('#remoteVideo');
+var localVideo = <HTMLVideoElement>document.querySelector('#localVideo');
+var remoteVideo = <HTMLVideoElement>document.querySelector('#remoteVideo');
 
-navigator.mediaDevices.getUserMedia({
-  audio: false,
-  video: true
-})
-.then(gotStream)
-.catch(function(e) {
-  alert('getUserMedia() error: ' + e.name);
-});
+navigator.mediaDevices
+  .getUserMedia({
+    audio: false,
+    video: true
+  })
+  .then(gotStream)
+  .catch(function (e) {
+    alert('getUserMedia() error: ' + e.name);
+  });
 
 function gotStream(stream) {
   console.log('Adding local stream.');
   localStream = stream;
   localVideo.srcObject = stream;
-  sendMessage({type:'initialize'});
+  sendMessage({type: SignalSteps.MediaCreated});
   if (isInitiator) {
     maybeStart();
   }
@@ -143,9 +135,7 @@ var constraints = {
 console.log('Getting user media with constraints', constraints);
 
 if (location.hostname !== 'localhost') {
-  requestTurn(
-    'https://computeengineondemand.appspot.com/turn?username=41784574&key=4080218913'
-  );
+  requestTurn('https://computeengineondemand.appspot.com/turn?username=41784574&key=4080218913');
 }
 
 function maybeStart() {
@@ -162,8 +152,8 @@ function maybeStart() {
   }
 }
 
-window.onbeforeunload = function() {
-  sendMessage({type:'bye'});
+window.onbeforeunload = function () {
+  sendMessage({type: SignalSteps.Terminate});
 };
 
 /////////////////////////////////////////////////////////
@@ -186,7 +176,7 @@ function handleIceCandidate(event) {
   console.log('icecandidate event: ', event);
   if (event.candidate) {
     sendMessage({
-      type: 'candidate',
+      type: SignalSteps.Candidate,
       label: event.candidate.sdpMLineIndex,
       id: event.candidate.sdpMid,
       candidate: event.candidate.candidate
@@ -206,17 +196,11 @@ function doCall() {
 }
 
 function doAnswer() {
-  console.log('Sending answer to peer.');
-  pc.createAnswer().then(
-    setLocalAndSendMessage,
-    onCreateSessionDescriptionError
-  );
+  pc.createAnswer().then(setLocalAndSendMessage, onCreateSessionDescriptionError);
 }
 
 function setLocalAndSendMessage(sessionDescription) {
   pc.setLocalDescription(sessionDescription);
-  console.log('setLocalAndSendMessage sending message', sessionDescription);
-  debugger
   sendMessage(sessionDescription);
 }
 
@@ -237,13 +221,13 @@ function requestTurn(turnURL) {
     console.log('Getting TURN server from ', turnURL);
     // No TURN server. Get one from computeengineondemand.appspot.com:
     var xhr = new XMLHttpRequest();
-    xhr.onreadystatechange = function() {
+    xhr.onreadystatechange = function () {
       if (xhr.readyState === 4 && xhr.status === 200) {
         var turnServer = JSON.parse(xhr.responseText);
         console.log('Got TURN server: ', turnServer);
         pcConfig.iceServers.push({
-          'urls': 'turn:' + turnServer.username + '@' + turnServer.turn,
-          'credential': turnServer.password
+          urls: 'turn:' + turnServer.username + '@' + turnServer.turn,
+          credential: turnServer.password
         } as any);
         turnReady = true;
       }
@@ -254,7 +238,6 @@ function requestTurn(turnURL) {
 }
 
 function handleRemoteStreamAdded(event) {
-  console.log('Remote stream added.');
   remoteStream = event.stream;
   remoteVideo.srcObject = remoteStream;
 }
@@ -266,7 +249,7 @@ function handleRemoteStreamRemoved(event) {
 function hangup() {
   console.log('Hanging up.');
   stop();
-  sendMessage({type:'bye'});
+  sendMessage({type:SignalSteps.Terminate});
 }
 
 function handleRemoteHangup() {
