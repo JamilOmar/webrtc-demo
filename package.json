@@ -5,12 +5,12 @@
   "main": "dist/lib/index.js",
   "scripts": {
     "build": "tsc",
-    "webpack" : "webpack",
+    "webpack": "webpack",
     "pretest": "npm run build",
     "test": "mocha --allow-console-logs",
-    "start:server" :"node ./dist/api/index.js",
+    "start:server": "node ./dist/api/index.js",
     "start:dev": "npm run build && npm run webpack && npm run start:server",
-    "dev":"nodemon"
+    "dev": "nodemon"
   },
   "author": "",
   "license": "MIT",
@@ -35,6 +35,7 @@
   "dependencies": {
     "express": "^4.17.1",
     "lodash": "^4.17.20",
+    "os": "^0.1.1",
     "socket.io": "^2.3.0"
   }
 }

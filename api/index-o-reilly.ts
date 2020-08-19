@@ -1,7 +1,6 @@
 import express from "express";
 import * as path from "path";
 import {Server, ServerOptions} from 'socket.io';
-import os = require('os');
 import SocketIOServer = require('socket.io');
 const app = express();
 const port = 9000; // default port to listen
@@ -19,7 +18,7 @@ io.on('connection',  (socket) =>{
 socket.on('message', function (message) {
     log("S --> got message: ", message);
     // channel-only broadcast...
-    socket.broadcast.emit('message', message);
+    socket.to(message.channel).emit('message', message);
 });
 
 // Handle 'create or join' messages
@@ -34,40 +33,31 @@ socket.on('create or join', async function (room) {
             }
         })});
     var numClients = (clients as any).length;
+
+
+    log('S --> Room ' + room + ' has ' + numClients + ' client(s)');
+    log('S --> Request to create or join room', room);
+
     // First client joining...
     if (numClients == 0){
         socket.join(room);
-        socket.emit('created', room, socket.id);
+        socket.emit('created', room);
     } else if (numClients == 1) {
     // Second client joining...
         io.in(room).emit('join', room);
         socket.join(room);
-        socket.emit('joined', room, socket.id);
-        io.in(room).emit('ready');
+        socket.emit('joined', room);
     } else { // max two clients
         socket.emit('full', room);
     }
 });
 
-socket.on('ipaddr', function() {
-    var ifaces = os.networkInterfaces();
-    for (var dev in ifaces) {
-      ifaces[dev].forEach(function(details) {
-        if (details.family === 'IPv4' && details.address !== '127.0.0.1') {
-          socket.emit('ipaddr', details.address);
-        }
-      });
-    }
-  });
-
-  socket.on('bye', function(){
-    console.log('received bye');
-  });
-
 function log(...params){
-    var array = ['Message from server:'];
-    array.push.apply(array, params);
-    console.log(array);
+    var array = [">>> "];
+    for (var i = 0; i < params.length; i++) {
+            array.push(params[i]);
+    }
+    console.log(array)
     socket.emit('log', array);
 }
 });

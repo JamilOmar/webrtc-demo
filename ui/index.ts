@@ -1,354 +1,267 @@
-import template from 'lodash/template';
-import * as services from './services';
-import { P2PService } from './services';
-import e from 'express';
-
-const p2pService = new P2PService();
-
-p2pService.connect();
-/*
-const outputElement = document.getElementById('output');
-if (outputElement) {
-  var compiled = template(`
-    <h1><%- heading %></h1>
-    Current date and time: <%- dateTimeString %>
-  `.trim());
-  outputElement.innerHTML = compiled({
-    heading: 'ts-demo-webpack',
-    dateTimeString: new Date().toISOString(),
-  });
-}*/
-
 'use strict';
-
-// Look after different browser vendors' ways of calling the getUserMedia()
-// API method:
-// Opera --> getUserMedia
-// Chrome --> webkitGetUserMedia
-// Firefox --> mozGetUserMedia
-//@ts-ignore
-navigator.getUserMedia = navigator.getUserMedia ||
-//@ts-ignore
-    navigator.webkitGetUserMedia || navigator.mozGetUserMedia;
-
-// Clean-up function:
-// collect garbage before unloading browser's window
-window.onbeforeunload = function(e){
-        hangup();
-}
-
-// Data channel information
-var sendChannel, receiveChannel;
-var sendButton:any = document.getElementById("sendButton");
-var sendTextarea:any = document.getElementById("dataChannelSend");
-var receiveTextarea:any = document.getElementById("dataChannelReceive");
-
-// HTML5 <video> elements
-var localVideo = document.querySelector('#localVideo');
-var remoteVideo = document.querySelector('#remoteVideo');
-
-// Handler associated with Send button
-sendButton.onclick = sendData;
-
-// Flags...
+import * as _ from 'lodash';
 var isChannelReady = false;
 var isInitiator = false;
 var isStarted = false;
-
-// WebRTC data structures
-// Streams
 var localStream;
-var remoteStream;
-// PeerConnection
 var pc;
+var remoteStream;
+var turnReady;
 
-// PeerConnection ICE protocol configuration (either Firefox or Chrome)
-//@ts-ignore
-var pc_config = window.mozRTCPeerConnection ?
-  {'iceServers':[{'url':'stun:23.21.150.121'}]} : // IP address
-  {'iceServers': [{'url': 'stun:stun.l.google.com:19302'}]};
+const pcConfig = {
+  'iceServers': [{
+    'urls': 'stun:stun.l.google.com:19302'
+  }]
+};
 
-var pc_constraints = {
-  'optional': [
-    {'DtlsSrtpKeyAgreement': true}
-  ]};
+// Set up audio and video regardless of what devices are present.
+var sdpConstraints = {
+  offerToReceiveAudio: true,
+  offerToReceiveVideo: true
+};
 
-var sdpConstraints = {};
+/////////////////////////////////////////////
 
-// Let's get started: prompt user for input (room name)
-var room = prompt('Enter room name:');
+var room = 'foo';
+// Could prompt for room name:
+// room = prompt('Enter room name:');
 
-// Connect to signaling server
-var socket = io.connect("http://localhost:9000");
+var socket = io.connect();
 
-// Send 'Create or join' message to singnaling server
 if (room !== '') {
-  console.log('Create or join room', room);
   socket.emit('create or join', room);
+  console.log('Attempted to create or  join room', room);
 }
 
-// Set getUserMedia constraints
-var constraints = {video: true, audio: true};
-
-// From this point on, execution proceeds based on asynchronous events...
-
-// getUserMedia() handlers...
-
-function handleUserMedia(stream) {
-        localStream = stream;
-        //@ts-ignore
-        localVideo.srcObject = stream;
-        console.log('Adding local stream.');
-        sendMessage({type:'got user media'});
-}
-
-function handleUserMediaError(error){
-        console.log('navigator.getUserMedia error: ', error);
-}
-
-// Server-mediated message exchanging...
-
-// 1. Server-->Client...
-
-// Handle 'created' message coming back from server:
-// this peer is the initiator
-socket.on('created', function (room){
+socket.on('created', function(room) {
   console.log('Created room ' + room);
   isInitiator = true;
-
-  // Call getUserMedia()
-  navigator.getUserMedia(constraints, handleUserMedia, handleUserMediaError);
-  console.log('Getting user media with constraints', constraints);
-
-  checkAndStart();
 });
 
-// Handle 'full' message coming back from server:
-// this peer arrived too late :-(
-socket.on('full', function (room){
+socket.on('full', function(room) {
   console.log('Room ' + room + ' is full');
 });
 
-// Handle 'join' message coming back from server:
-// another peer is joining the channel
 socket.on('join', function (room){
   console.log('Another peer made a request to join room ' + room);
   console.log('This peer is the initiator of room ' + room + '!');
   isChannelReady = true;
 });
 
-// Handle 'joined' message coming back from server:
-// this is the second peer joining the channel
-socket.on('joined', function (room){
-  console.log('This peer has joined room ' + room);
+socket.on('joined', function(room) {
+  console.log('joined: ' + room);
   isChannelReady = true;
-
-  // Call getUserMedia()
-  navigator.getUserMedia(constraints, handleUserMedia, handleUserMediaError);
-  console.log('Getting user media with constraints', constraints);
 });
 
-// Server-sent log message...
-socket.on('log', function (array){
+socket.on('log', function(array) {
   console.log.apply(console, array);
 });
 
-// Receive message from the other peer via the signaling server
-socket.on('message', function (message){
-  console.log('Received message:', message);
-  if (message.type === 'got user media') {
-      checkAndStart();
-  } else if (message.type === 'offer') {
-    if (!isInitiator && !isStarted) {
-      checkAndStart();
-    }
-    pc.setRemoteDescription(new RTCSessionDescription(message));
-    doAnswer();
-  } else if (message.type === 'answer' && isStarted) {
-    pc.setRemoteDescription(new RTCSessionDescription(message));
-  } else if (message.type === 'candidate' && isStarted) {
-    var candidate = new RTCIceCandidate({sdpMLineIndex:message.label,
-      candidate:message.candidate});
-    pc.addIceCandidate(candidate);
-  } else if (message.type === 'bye' && isStarted) {
-    handleRemoteHangup();
-  }
-});
+////////////////////////////////////////////////
 
-// 2. Client-->Server
+function sendMessage(message) {
+  console.log('Client sending message: ', message);
 
-// Send message to the other peer via the signaling server
-function sendMessage(message){
-  console.log('Sending message: ', message);
   let msg ={};
   if(typeof message === 'object')
   {
-    msg = {...message , channel:room}
+    msg = _.set(message,'channel',room);
     console.log(msg)
 
   }else{
     msg = {message , channel:room}
 
   }
-  socket.emit('message',msg);
+  socket.emit('message', msg);
 }
 
-// Channel negotiation trigger function
-function checkAndStart() {
-  if (!isStarted && typeof localStream != 'undefined' && isChannelReady) {
-        createPeerConnection();
+// This client receives a message
+socket.on('message', function(message) {
+  console.log('Client received message:', message);
+  debugger
+  switch(message.type){
+    case 'initialize':
+      maybeStart();
+      break;
+    case 'offer':
+      if (!isInitiator && !isStarted) {
+        maybeStart();
+      }
+      pc.setRemoteDescription(new RTCSessionDescription(message));
+      doAnswer();
+      break;
+      case 'answer':
+        if (isStarted) {
+          pc.setRemoteDescription(new RTCSessionDescription(message));
+        }
+        break;
+        case 'candidate':
+          if (isStarted) {
+            var candidate = new RTCIceCandidate({
+              sdpMLineIndex: message.label,
+              candidate: message.candidate
+            });
+            pc.addIceCandidate(candidate);
+          }
+          break;   
+        case 'bye':
+          if (isStarted) {
+            handleRemoteHangup();
+          }
+          break;
+  }
+});
+
+////////////////////////////////////////////////////
+
+var localVideo =  <HTMLVideoElement> document.querySelector('#localVideo');
+var remoteVideo =   <HTMLVideoElement> document.querySelector('#remoteVideo');
+
+navigator.mediaDevices.getUserMedia({
+  audio: false,
+  video: true
+})
+.then(gotStream)
+.catch(function(e) {
+  alert('getUserMedia() error: ' + e.name);
+});
+
+function gotStream(stream) {
+  console.log('Adding local stream.');
+  localStream = stream;
+  localVideo.srcObject = stream;
+  sendMessage({type:'initialize'});
+  if (isInitiator) {
+    maybeStart();
+  }
+}
+
+var constraints = {
+  video: true
+};
+
+console.log('Getting user media with constraints', constraints);
+
+if (location.hostname !== 'localhost') {
+  requestTurn(
+    'https://computeengineondemand.appspot.com/turn?username=41784574&key=4080218913'
+  );
+}
+
+function maybeStart() {
+  console.log('>>>>>>> maybeStart() ', isStarted, localStream, isChannelReady);
+  if (!isStarted && typeof localStream !== 'undefined' && isChannelReady) {
+    console.log('>>>>>> creating peer connection');
+    createPeerConnection();
+    pc.addStream(localStream);
     isStarted = true;
+    console.log('isInitiator', isInitiator);
     if (isInitiator) {
       doCall();
     }
   }
 }
 
-// PeerConnection management...
+window.onbeforeunload = function() {
+  sendMessage({type:'bye'});
+};
+
+/////////////////////////////////////////////////////////
+
 function createPeerConnection() {
   try {
-    console.log('entro aca!!')
-    pc = new RTCPeerConnection(pc_config as any);
-
-    pc.addStream(localStream);
-
+    pc = new RTCPeerConnection(null);
     pc.onicecandidate = handleIceCandidate;
-    console.log('Created RTCPeerConnnection with:\n' +
-      '  config: \'' + JSON.stringify(pc_config) + '\';\n' +
-      '  constraints: \'' + JSON.stringify(pc_constraints) + '\'.');
+    pc.onaddstream = handleRemoteStreamAdded;
+    pc.onremovestream = handleRemoteStreamRemoved;
+    console.log('Created RTCPeerConnnection');
   } catch (e) {
     console.log('Failed to create PeerConnection, exception: ' + e.message);
     alert('Cannot create RTCPeerConnection object.');
-      return;
-  }
-
-  pc.onaddstream = handleRemoteStreamAdded;
-  pc.onremovestream = handleRemoteStreamRemoved;
-
-  if (isInitiator) {
-    try {
-      // Create a reliable data channel
-      sendChannel = pc.createDataChannel("sendDataChannel",
-        {reliable: true});
-      console.trace('Created send data channel');
-    } catch (e) {
-      alert('Failed to create data channel. ');
-      console.trace('createDataChannel() failed with exception: ' + e.message);
-    }
-    sendChannel.onopen = handleSendChannelStateChange;
-    sendChannel.onmessage = handleMessage;
-    sendChannel.onclose = handleSendChannelStateChange;
-  } else { // Joiner
-    pc.ondatachannel = gotReceiveChannel;
+    return;
   }
 }
 
-// Data channel management
-function sendData() {
-  var data = sendTextarea.value;
-  if(isInitiator) sendChannel.send(data);
-  else receiveChannel.send(data);
-  console.trace('Sent data: ' + data);
-}
-
-// Handlers...
-
-function gotReceiveChannel(event) {
-  console.trace('Receive Channel Callback');
-  receiveChannel = event.channel;
-  receiveChannel.onmessage = handleMessage;
-  receiveChannel.onopen = handleReceiveChannelStateChange;
-  receiveChannel.onclose = handleReceiveChannelStateChange;
-}
-
-function handleMessage(event) {
-  console.trace('Received message: ' + event.data);
-  receiveTextarea.value += event.data + '\n';
-}
-
-function handleSendChannelStateChange() {
-  var readyState = sendChannel.readyState;
-  console.trace('Send channel state is: ' + readyState);
-  // If channel ready, enable user's input
-  if (readyState == "open") {
-    sendTextarea.disabled = false;
-    sendTextarea.focus();
-    sendTextarea.placeholder = "";
-    sendButton.disabled = false;
-  } else {
-    sendTextarea.disabled = true;
-    sendButton.disabled = true;
-  }
-}
-
-function handleReceiveChannelStateChange() {
-  var readyState = receiveChannel.readyState;
-  console.trace('Receive channel state is: ' + readyState);
-  // If channel ready, enable user's input
-  if (readyState == "open") {
-    sendTextarea.disabled = false;
-    sendTextarea.focus();
-    sendTextarea.placeholder = "";
-            sendButton.disabled = false;
-          } else {
-            sendTextarea.disabled = true;
-            sendButton.disabled = true;
-          }
-}
-
-// ICE candidates management
 function handleIceCandidate(event) {
-  console.log('handleIceCandidate event: ', event);
+  console.log('icecandidate event: ', event);
   if (event.candidate) {
     sendMessage({
       type: 'candidate',
       label: event.candidate.sdpMLineIndex,
       id: event.candidate.sdpMid,
-      candidate: event.candidate.candidate});
+      candidate: event.candidate.candidate
+    });
   } else {
     console.log('End of candidates.');
   }
 }
 
-// Create Offer
+function handleCreateOfferError(event) {
+  console.log('createOffer() error: ', event);
+}
+
 function doCall() {
-  console.log('Creating Offer...');
-  pc.createOffer(setLocalAndSendMessage, onSignalingError, sdpConstraints);
+  console.log('Sending offer to peer');
+  pc.createOffer(setLocalAndSendMessage, handleCreateOfferError);
 }
 
-// Signaling error handler
-function onSignalingError(error) {
-        console.log('Failed to create signaling message : ' + error.name);
-}
-
-// Create Answer
 function doAnswer() {
   console.log('Sending answer to peer.');
-  pc.createAnswer(setLocalAndSendMessage, onSignalingError, sdpConstraints);
+  pc.createAnswer().then(
+    setLocalAndSendMessage,
+    onCreateSessionDescriptionError
+  );
 }
 
-// Success handler for both createOffer()
-// and createAnswer()
 function setLocalAndSendMessage(sessionDescription) {
   pc.setLocalDescription(sessionDescription);
+  console.log('setLocalAndSendMessage sending message', sessionDescription);
+  debugger
   sendMessage(sessionDescription);
 }
 
-// Remote stream handlers...
+function onCreateSessionDescriptionError(error) {
+  console.trace('Failed to create session description: ' + error.toString());
+}
+
+function requestTurn(turnURL) {
+  var turnExists = false;
+  for (var i in pcConfig.iceServers) {
+    if (pcConfig.iceServers[i].urls.substr(0, 5) === 'turn:') {
+      turnExists = true;
+      turnReady = true;
+      break;
+    }
+  }
+  if (!turnExists) {
+    console.log('Getting TURN server from ', turnURL);
+    // No TURN server. Get one from computeengineondemand.appspot.com:
+    var xhr = new XMLHttpRequest();
+    xhr.onreadystatechange = function() {
+      if (xhr.readyState === 4 && xhr.status === 200) {
+        var turnServer = JSON.parse(xhr.responseText);
+        console.log('Got TURN server: ', turnServer);
+        pcConfig.iceServers.push({
+          'urls': 'turn:' + turnServer.username + '@' + turnServer.turn,
+          'credential': turnServer.password
+        } as any);
+        turnReady = true;
+      }
+    };
+    xhr.open('GET', turnURL, true);
+    xhr.send();
+  }
+}
 
 function handleRemoteStreamAdded(event) {
   console.log('Remote stream added.');
-  //@ts-ignore
-  remoteVideo.srcObject = event.stream;
-  console.log('Remote stream attached!!.');
   remoteStream = event.stream;
+  remoteVideo.srcObject = remoteStream;
 }
 
 function handleRemoteStreamRemoved(event) {
   console.log('Remote stream removed. Event: ', event);
 }
-
-// Clean-up functions...
 
 function hangup() {
   console.log('Hanging up.');
@@ -361,12 +274,9 @@ function handleRemoteHangup() {
   stop();
   isInitiator = false;
 }
-
+// @ts-ignore
 function stop() {
   isStarted = false;
-  if (sendChannel) sendChannel.close();
-  if (receiveChannel) receiveChannel.close();
-  if (pc) pc.close();
+  pc.close();
   pc = null;
-  sendButton.disabled=true;
 }

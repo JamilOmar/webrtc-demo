@@ -5,47 +5,13 @@
   <title>ts-demo-webpack</title>
 </head>
 <body>
-  <div id='mainDiv'>
+        <h1>Realtime communication with WebRTC</h1>
 
-    <table border="1" width="100%">
-                <tr>
-                        <th>
-                                Local video
-                        </th>
-                        <th>
-                                Remote video
-                        </th>
-                </tr>
-                <tr>
-                        <td>
-                                <video id="localVideo" autoplay></video>
-                        </td>
-                        <td>
-                                <video id="remoteVideo" autoplay></video>
-                        </td>
-                </tr>
-                <tr>
-                        <td align="center">
-                                <textarea rows="4" cols="60"
-                    id="dataChannelSend" disabled
-                                placeholder="This will be enabled once
-                    the data channel is up...">
-                </textarea>
-                        </td>
-                        <td align="center">
-                                <textarea rows="4" cols="60"
-                    id="dataChannelReceive" disabled>
-                </textarea>
-                        </td>
-                </tr>
-                <tr>
-                        <td align="center">
-                                <button id="sendButton" disabled>Send</button>
-                        </td>
-                        <td></td>
-                </tr>
-        </table>
-</div>
+        <div id="videos">
+          <video id="localVideo" autoplay muted playsinline></video>
+          <video id="remoteVideo" autoplay playsinline></video>
+        </div>
+      
   <script src="https://webrtc.github.io/adapter/adapter-latest.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/2.1.1/socket.io.js"></script>
   <script src="main-bundle.js"></script>
