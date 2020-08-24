@@ -39,15 +39,25 @@ socket.on(SocketServerEvents.Initialize, async  (room) => {
     // First client joining...
     if (numClients == 0){
         socket.join(room);
-        socket.emit(SocketServerEvents.Created, room, socket.id);
-    } else if (numClients == 1) {
-    // Second client joining...
-        io.in(room).emit(SocketServerEvents.Join, room);
+        socket.emit(SocketServerEvents.Message, {
+            type: SignalSteps.RequestorCreated
+          });
+    } else if (numClients == 1) {       
         socket.join(room);
-        socket.emit(SocketServerEvents.Joined, room, socket.id);
-        io.in(room).emit(SocketServerEvents.Ready);
+        socket.emit(
+            SocketServerEvents.Message, {
+                type: SignalSteps.ResponderCreated
+              }
+        );
+        socket.to(room).emit(
+            SocketServerEvents.Message, {
+                type: SignalSteps.ReadyToCall
+              }
+        );
     } else { // max two clients
-        socket.emit(SocketServerEvents.IsFull, room);
+        socket.emit(SocketServerEvents.Message, {
+            type: SignalSteps.IsFull
+          });
     }
 });
 

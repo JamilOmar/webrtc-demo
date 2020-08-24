@@ -1,265 +1,268 @@
 'use strict';
 import * as _ from 'lodash';
+import {EventEmitter} from 'events';
+import * as io from 'socket.io-client';
 import {SignalSteps, SocketServerEvents} from '../lib/';
-var isChannelReady = false;
-var isInitiator = false;
-var isStarted = false;
-var localStream;
-var pc;
-var remoteStream;
-var turnReady;
-
-const pcConfig = {
-  iceServers: [
-    {
-      urls: 'stun:stun.l.google.com:19302'
-    }
-  ]
-};
-
-// Set up audio and video regardless of what devices are present.
-var sdpConstraints = {
-  offerToReceiveAudio: true,
-  offerToReceiveVideo: true
-};
-
-/////////////////////////////////////////////
-
-var room = 'foo';
-// Could prompt for room name:
-// room = prompt('Enter room name:');
-
-var socket = io.connect();
-
-if (room !== '') {
-  socket.emit(SocketServerEvents.Initialize, room);
-  console.log('Attempted to create or  join room', room);
-}
-
-socket.on(SocketServerEvents.Created, function (room) {
-  console.log('Created room ' + room);
-  isInitiator = true;
-});
-
-socket.on(SocketServerEvents.IsFull, function (room) {
-  console.log('Room ' + room + ' is full');
-});
-
-socket.on(SocketServerEvents.Join, function (room) {
-  console.log('Another peer made a request to join room ' + room);
-  console.log('This peer is the initiator of room ' + room + '!');
-  isChannelReady = true;
-});
-
-socket.on(SocketServerEvents.Joined, function (room) {
-  console.log('joined: ' + room);
-  isChannelReady = true;
-});
-
-socket.on('log', function (array) {
-  console.log.apply(console, array);
-});
-
-////////////////////////////////////////////////
-
-function sendMessage(message: Object | string) {
-  console.log('Client sending message: ', message);
-  const msg = (typeof message === 'object') ?_.set(message, 'channel', room) :{message, channel: room};
-  socket.emit(SocketServerEvents.Message, msg);
-}
-
-// This client receives a message
-socket.on(SocketServerEvents.Message,  (message) => {
-  switch (message.type) {
-    case SignalSteps.MediaCreated:
-      maybeStart();
-      break;
-    case  SignalSteps.Offer:
-      if (!isInitiator && !isStarted) {
-        maybeStart();
-      }
-      pc.setRemoteDescription(new RTCSessionDescription(message));
-      doAnswer();
-      break;
-    case SignalSteps.Answer:
-      if (isStarted) {
-        pc.setRemoteDescription(new RTCSessionDescription(message));
-      }
-      break;
-    case SignalSteps.Candidate:
-      if (isStarted) {
-        const candidate = new RTCIceCandidate({
-          sdpMLineIndex: message.label,
-          candidate: message.candidate
-        });
-        pc.addIceCandidate(candidate);
-      }
-      break;
-    case SignalSteps.Terminate:
-      if (isStarted) {
-        handleRemoteHangup();
-      }
-      break;
-  }
-});
-
 ////////////////////////////////////////////////////
-
 var localVideo = <HTMLVideoElement>document.querySelector('#localVideo');
 var remoteVideo = <HTMLVideoElement>document.querySelector('#remoteVideo');
-
-navigator.mediaDevices
-  .getUserMedia({
-    audio: false,
-    video: true
-  })
-  .then(gotStream)
-  .catch(function (e) {
-    alert('getUserMedia() error: ' + e.name);
-  });
-
-function gotStream(stream) {
-  console.log('Adding local stream.');
-  localStream = stream;
-  localVideo.srcObject = stream;
-  sendMessage({type: SignalSteps.MediaCreated});
-  if (isInitiator) {
-    maybeStart();
-  }
-}
-
-var constraints = {
-  video: true
-};
-
-console.log('Getting user media with constraints', constraints);
-
-if (location.hostname !== 'localhost') {
-  requestTurn('https://computeengineondemand.appspot.com/turn?username=41784574&key=4080218913');
-}
-
-function maybeStart() {
-  console.log('>>>>>>> maybeStart() ', isStarted, localStream, isChannelReady);
-  if (!isStarted && typeof localStream !== 'undefined' && isChannelReady) {
-    console.log('>>>>>> creating peer connection');
-    createPeerConnection();
-    pc.addStream(localStream);
-    isStarted = true;
-    console.log('isInitiator', isInitiator);
-    if (isInitiator) {
-      doCall();
-    }
-  }
-}
-
-window.onbeforeunload = function () {
-  sendMessage({type: SignalSteps.Terminate});
-};
-
-/////////////////////////////////////////////////////////
-
-function createPeerConnection() {
-  try {
-    pc = new RTCPeerConnection(null);
-    pc.onicecandidate = handleIceCandidate;
-    pc.onaddstream = handleRemoteStreamAdded;
-    pc.onremovestream = handleRemoteStreamRemoved;
-    console.log('Created RTCPeerConnnection');
-  } catch (e) {
-    console.log('Failed to create PeerConnection, exception: ' + e.message);
-    alert('Cannot create RTCPeerConnection object.');
-    return;
-  }
-}
-
-function handleIceCandidate(event) {
-  console.log('icecandidate event: ', event);
-  if (event.candidate) {
-    sendMessage({
-      type: SignalSteps.Candidate,
-      label: event.candidate.sdpMLineIndex,
-      id: event.candidate.sdpMid,
-      candidate: event.candidate.candidate
-    });
-  } else {
-    console.log('End of candidates.');
-  }
-}
-
-function handleCreateOfferError(event) {
-  console.log('createOffer() error: ', event);
-}
-
-function doCall() {
-  console.log('Sending offer to peer');
-  pc.createOffer(setLocalAndSendMessage, handleCreateOfferError);
-}
-
-function doAnswer() {
-  pc.createAnswer().then(setLocalAndSendMessage, onCreateSessionDescriptionError);
-}
-
-function setLocalAndSendMessage(sessionDescription) {
-  pc.setLocalDescription(sessionDescription);
-  sendMessage(sessionDescription);
-}
-
-function onCreateSessionDescriptionError(error) {
-  console.trace('Failed to create session description: ' + error.toString());
-}
-
-function requestTurn(turnURL) {
-  var turnExists = false;
-  for (var i in pcConfig.iceServers) {
-    if (pcConfig.iceServers[i].urls.substr(0, 5) === 'turn:') {
-      turnExists = true;
-      turnReady = true;
-      break;
-    }
-  }
-  if (!turnExists) {
-    console.log('Getting TURN server from ', turnURL);
-    // No TURN server. Get one from computeengineondemand.appspot.com:
-    var xhr = new XMLHttpRequest();
-    xhr.onreadystatechange = function () {
-      if (xhr.readyState === 4 && xhr.status === 200) {
-        var turnServer = JSON.parse(xhr.responseText);
-        console.log('Got TURN server: ', turnServer);
-        pcConfig.iceServers.push({
-          urls: 'turn:' + turnServer.username + '@' + turnServer.turn,
-          credential: turnServer.password
-        } as any);
-        turnReady = true;
+var sendInfo = <HTMLButtonElement>document.querySelector('#sendMsgBtn');
+var msgInput = <HTMLButtonElement>document.querySelector('#msgInput');
+////////////////////////////////////////////////////
+export class P2P extends EventEmitter {
+  self: P2P = this;
+  room: string = 'foo';
+  isInitiator: boolean = false;
+  localStream: MediaStream;
+  remoteStream: MediaStream;
+  connection: RTCPeerConnection | any;
+  pcConfig = {
+    iceServers: [
+      {
+        urls: 'stun:stun.l.google.com:19302'
       }
+    ]
+  };
+  ioSocket: any;
+  sendChannel: RTCDataChannel;
+
+  constructor(private config: any = {}) {
+    super();
+    const url: string = config.url;
+    const options: any = config.options;
+    const ioFunc = (io as any).default ? (io as any).default : io;
+    this.ioSocket = ioFunc(url, options);
+  }
+
+  // sockets area
+  public get socket() {
+    return this.ioSocket;
+  }
+
+  public connect() {
+    return this.ioSocket.connect();
+  }
+
+  public disconnect(close?: any) {
+    return this.ioSocket.disconnect.apply(this.ioSocket, arguments);
+  }
+
+  public setupSocketEvents() {
+    this.ioSocket.on('log', function (array) {
+      console.log.apply(console, array);
+    });
+    ////////////////////////////////////////////////
+    this.ioSocket.on(SocketServerEvents.Message, (message) => {
+      switch (message.type) {
+        case SignalSteps.RequestorCreated:
+          this.setupPeer(true);
+          break;
+        case SignalSteps.ResponderCreated:
+          this.setupPeer(false);
+          break;
+        case SignalSteps.ReadyToCall:
+          if (this.isInitiator) this.callPeer();
+          break;
+        case SignalSteps.Offer:
+          this.onOffer(message);
+          break;
+        case SignalSteps.Answer:
+          this.onAnswer(message);
+          break;
+        case SignalSteps.Candidate:
+          this.onIceCandidate(message);
+          break;
+        case SignalSteps.Terminate:
+          this.handleRemoteHangup();
+          break;
+      }
+    });
+  }
+
+  async setup() {
+    this.connect();
+    this.setupSocketEvents();
+  }
+
+  async start() {
+    this.ioSocket.emit(SocketServerEvents.Initialize, this.room);
+  }
+  // sockets area
+  sendMessage(message: Object | string) {
+    console.log('Client sending message: ', message);
+    const msg = typeof message === 'object' ? _.set(message, 'channel', this.room) : {message, channel: this.room};
+    this.ioSocket.emit(SocketServerEvents.Message, msg);
+  }
+  async getUserMedia() {
+    return navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: true
+    });
+  }
+
+  setupPeer(isInitiator: boolean) {
+    this.createPeerConnection();
+    if (this.localStream) {
+      this.connection.addStream(this.localStream);
+    }
+    this.isInitiator = isInitiator;
+  }
+  createPeerConnection() {
+    try {
+      const self = this;
+      this.connection = new RTCPeerConnection(null);
+      this.sendChannel = this.connection.createDataChannel('data', {
+        reliable: true,
+        negotiated: true,
+        id: 0
+      });
+      this.connection.onicecandidate = this.handleIceCandidate(self);
+      this.connection.onaddstream = this.handleRemoteStreamAdded(self);
+      this.connection.onremovestream = this.handleRemoteStreamRemoved(self);
+      this.sendChannel.onopen = this.handleChannelOpened(self);
+      this.sendChannel.onclose = this.handleChannelClosed(self);
+      this.sendChannel.onerror = this.handleChannelError(self);
+      this.sendChannel.onmessage = this.handleChannelMessage(self);
+      console.log('Created RTCPeerConnnection');
+    } catch (e) {
+      console.log('Failed to create PeerConnection, exception: ' + e.message);
+    }
+  }
+  handleChannelOpened(self) {
+    return (event) => {
+      self.emit('handleChannelOpened', event);
     };
-    xhr.open('GET', turnURL, true);
-    xhr.send();
+  }
+  handleChannelClosed(self) {
+    return (event) => {
+      self.emit('handleChannelClosed', event);
+    };
+  }
+  handleChannelError(self) {
+    return (event) => {
+      self.emit('handleChannelError', event);
+    };
+  }
+  handleChannelMessage(self) {
+    return (event) => {
+      self.emit('handleChannelMessage', event);
+    };
+  }
+  sendData(val) {
+    if (this.sendChannel.readyState === 'open') {
+      this.sendChannel.send(val);
+    }
+  }
+  handleIceCandidate(self) {
+    return (event) => {
+      if (event.candidate) {
+        self.sendMessage({
+          type: SignalSteps.Candidate,
+          label: event.candidate.sdpMLineIndex,
+          id: event.candidate.sdpMid,
+          candidate: event.candidate.candidate
+        });
+      } else {
+        console.log('End of candidates.');
+      }
+      self.emit('handleIceCandidate', event);
+    };
+  }
+
+  handleCreateOfferError(self) {
+    return (event) => {
+      self.emit('handleCreateOfferError', event);
+    };
+  }
+
+  callPeer() {
+    console.log('Sending offer to peer');
+    const self = this;
+    this.connection.createOffer(this.setLocalAndSendMessage(self), this.handleCreateOfferError(self));
+  }
+
+  onOffer(offer) {
+    const self = this;
+    this.connection.setRemoteDescription(new RTCSessionDescription(offer));
+    this.connection.createAnswer().then(this.setLocalAndSendMessage(self), this.onCreateSessionDescriptionError(self));
+  }
+
+  onAnswer(answer) {
+    this.connection.setRemoteDescription(new RTCSessionDescription(answer));
+  }
+
+  onIceCandidate(message) {
+    const candidate = new RTCIceCandidate({
+      sdpMLineIndex: message.label,
+      candidate: message.candidate
+    });
+    this.connection.addIceCandidate(candidate);
+  }
+  setLocalAndSendMessage(self) {
+    return (sessionDescription) => {
+      self.connection.setLocalDescription(sessionDescription);
+      self.sendMessage(sessionDescription);
+    };
+  }
+
+  onCreateSessionDescriptionError(self) {
+    return (event) => {
+      self.emit('onCreateSessionDescriptionError', event);
+    };
+  }
+
+  handleRemoteStreamAdded(self) {
+    return (event) => {
+      self.emit('handleRemoteStreamAdded', event);
+    };
+  }
+
+  handleRemoteStreamRemoved(self) {
+    return (event) => {
+      self.emit('handleRemoteStreamRemoved', event);
+    };
+  }
+
+  hangup(self) {
+    // @ts-ignore
+    stop(self);
+    self.sendMessage({type: SignalSteps.Terminate});
+  }
+
+  handleRemoteHangup() {
+    // @ts-ignore
+    stop();
+    this.isInitiator = false;
+  }
+  // @ts-ignore
+  stop() {
+    this.connection.close();
+    this.connection = null;
   }
 }
 
-function handleRemoteStreamAdded(event) {
-  remoteStream = event.stream;
-  remoteVideo.srcObject = remoteStream;
+const p2p = new P2P({});
+async function setup() {
+  await p2p.setup();
+  const stream = await p2p.getUserMedia();
+  p2p.localStream = localVideo.srcObject = stream;
+  await p2p.start();
+  return;
 }
+setup().then(
+  (g) => {},
+  (error) => console.log
+);
+window.onbeforeunload = function () {
+  p2p.sendMessage({type: SignalSteps.Terminate});
+};
+sendInfo.onclick = () => {
+  p2p.sendData(msgInput.value);
+};
 
-function handleRemoteStreamRemoved(event) {
-  console.log('Remote stream removed. Event: ', event);
-}
-
-function hangup() {
-  console.log('Hanging up.');
-  stop();
-  sendMessage({type:SignalSteps.Terminate});
-}
-
-function handleRemoteHangup() {
-  console.log('Session terminated.');
-  stop();
-  isInitiator = false;
-}
-// @ts-ignore
-function stop() {
-  isStarted = false;
-  pc.close();
-  pc = null;
-}
+p2p.on('handleChannelMessage', (event) => {
+  console.log(event);
+});
+p2p.on('handleRemoteStreamAdded', (event) => {
+  remoteVideo.srcObject = p2p.remoteStream = event.stream;
+});

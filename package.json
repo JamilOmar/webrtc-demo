@@ -33,6 +33,7 @@
     "webpack-cli": "^3.3.12"
   },
   "dependencies": {
+    "events": "^3.2.0",
     "express": "^4.17.1",
     "lodash": "^4.17.20",
     "os": "^0.1.1",

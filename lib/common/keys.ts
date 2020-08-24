@@ -3,8 +3,10 @@ export const SignalSteps={
     Offer:'offer',
     Candidate:'candidate',
     Answer : 'answer',
-    MediaCreated : 'media-created'
-
+    RequestorCreated : 'requestor-created',
+    ResponderCreated : 'responder-created',
+    ReadyToCall : 'ready-to-call',
+    IsFull: 'is-full'
 }
 
 export const SocketServerEvents={
