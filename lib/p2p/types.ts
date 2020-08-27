@@ -5,9 +5,15 @@ export interface P2PParams{
     wct?:unknown,
     servers?:any
 }
+
+export enum P2PPackageType {
+    initTransfer,
+    message
+}
 export interface P2PPackage{
-    checkSum:number;
-    data: Stream;
-    size: number;
-    id:number;
+    checkSum?:number;
+    payload?:any;
+    fileSize?: number;
+    type: P2PPackageType;
+    fileName?:string;
 }
