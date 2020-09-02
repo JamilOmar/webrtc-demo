@@ -17,3 +17,9 @@ export interface P2PPackage{
     type: P2PPackageType;
     fileName?:string;
 }
+
+export interface P2PSignalMessage{
+    connectionId:string | number;
+    type: string,
+    [x:string]:any
+}

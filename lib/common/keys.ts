@@ -17,4 +17,27 @@ export const SocketServerEvents={
     Joined : 'p2p:joined',
     Ready : 'p2p:ready',
     IsFull : 'p2p:is-full',
+    CreateMeeting : 'p2p:create-meeting',
+    Clients : 'p2p:clients',
+}
+
+
+export const PeerEvents={
+    OnPeerAdded:'onpeeradded',
+    OnMessageReceive : 'onmessagerreceive',
+    OnAddStream :'onaddstream',
+    OnRemoveStream :'onremovestream',
+    OnTransferStart : 'ontransferstart',
+    OnTransferReceive : 'ontransferreceive',
+    OnChannelOpen :'onchannelopen',
+    onChannelClose : 'onchannelclose',
+    onChannelError : 'onChannelError',
+   
+}
+
+
+export const P2PEvents={
+    OnPeerAdded:'onpeeradded',
+    OnPeerRemoved : 'onpeerremoved',
+    OnListClients : 'onlistclients'
 }

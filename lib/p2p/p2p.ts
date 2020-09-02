@@ -1,16 +1,17 @@
 import {EventEmitter} from 'events';
 import * as io from 'socket.io-client';
-import {SignalSteps, SocketServerEvents} from '../';
-import * as _ from 'lodash';
+import {SignalSteps, SocketServerEvents,P2PEvents, PeerEvents} from '../';
 import * as utils from './utils';
-import {P2PPackage, P2PPackageType} from './types';
-const MAX_CHUNK_LENGTH = 64000;
+import * as _ from 'lodash';
+import { P2PSignalMessage} from './types';
+import FastMap = require('collections/fast-map');
+import {Peer} from './peer';
+
 export class P2P extends EventEmitter {
-  room: string = 'foo';
-  isInitiator: boolean = false;
   localStream: MediaStream;
   remoteStream: MediaStream;
-  connection: RTCPeerConnection | any;
+
+  connectionDictionary: FastMap;
 
   pcConfig = {
     iceServers: [
@@ -20,10 +21,6 @@ export class P2P extends EventEmitter {
     ]
   };
   ioSocket: any;
-  sendChannel: RTCDataChannel;
-  /// channel transfer
-  count = 0;
-  buf;
 
   constructor(private config: any = {}) {
     super();
@@ -31,6 +28,7 @@ export class P2P extends EventEmitter {
     const options: any = config.options;
     const ioFunc = (io as any).default ? (io as any).default : io;
     this.ioSocket = ioFunc(url, options);
+    this.connectionDictionary = new FastMap();
   }
 
   // sockets area
@@ -38,216 +36,145 @@ export class P2P extends EventEmitter {
     return this.ioSocket;
   }
 
+  public get p2pConnections() {
+    return this.connectionDictionary;
+  }
+
+  public getP2PConnection(connectionId: string | number): Peer {
+    if (this.connectionDictionary.has(connectionId)) {
+      return this.connectionDictionary.get(connectionId);
+    } else {
+      throw new Error('Peer Connection not found.');
+    }
+  }
+  public addP2PConnection(connectionId: string | number, isInitiator: boolean = false, localStream: MediaStream = undefined) {
+    utils.trace('p2p:addP2PConnection' , connectionId , isInitiator , localStream );
+    const peer = new Peer(connectionId, isInitiator, localStream);
+    const self = this;
+    peer.on('onicecandidate', (message) => {
+      message.type = SignalSteps.Candidate,
+      utils.trace('p2p:onicecandidate' , message);
+      self.ioSocket.emit(SocketServerEvents.Message,message);
+    });
+    peer.on('oncreateanswer', (message) => {
+      utils.trace('p2p:oncreateanswer' , message);
+      self.ioSocket.emit(SocketServerEvents.Message,message);
+    });
+    peer.on('oncreateoffer', (message) => {
+      utils.trace('p2p:oncreateoffer' , message);
+      self.ioSocket.emit(SocketServerEvents.Message,message);
+    });
+    this.connectionDictionary.set(connectionId, peer);
+    this.emit(P2PEvents.OnPeerAdded, peer);
+  }
+
   public connect() {
+    utils.trace('p2p:connect');
     return this.ioSocket.connect();
   }
 
   public disconnect(close?: any) {
+    utils.trace('p2p:disconnect');
     return this.ioSocket.disconnect.apply(this.ioSocket, arguments);
   }
 
   public setupSocketEvents() {
-    this.ioSocket.on('log', function (array) {
-      console.log.apply(console, array);
+    utils.trace('p2p:setupSocketEvents');
+    this.ioSocket.on(SocketServerEvents.Clients ,(clients)=>{
+      utils.trace(`p2p:${SocketServerEvents.Clients}` , clients);
+      this.emit(P2PEvents.OnListClients , clients);
     });
-    ////////////////////////////////////////////////
-    this.ioSocket.on(SocketServerEvents.Message, (message) => {
+    this.ioSocket.on(SocketServerEvents.Message,  (message: P2PSignalMessage) => {
+      utils.trace(`p2p:${SocketServerEvents.Message}` , message);
       switch (message.type) {
         case SignalSteps.RequestorCreated:
-          this.setupPeer(true);
+          this.setupPeer(true, message);
           break;
         case SignalSteps.ResponderCreated:
-          this.setupPeer(false);
+          this.setupPeer(false, message);
           break;
         case SignalSteps.ReadyToCall:
-          if (this.isInitiator) this.callPeer();
+          //if (this.isInitiator)
+         this.createOffer(message);
           break;
         case SignalSteps.Offer:
-          this.onOffer(message);
+         this.createAnswer(message);
           break;
         case SignalSteps.Answer:
-          this.onAnswer(message);
+         this.onAnswer(message);
           break;
         case SignalSteps.Candidate:
-          this.onIceCandidate(message);
+          this.addIceCandidate(message);
           break;
         case SignalSteps.Terminate:
-          this.handleRemoteHangup();
+          this.onTerminate(message);
           break;
       }
     });
   }
 
   async setup() {
+    utils.trace(`p2p:setup`);
     this.connect();
     this.setupSocketEvents();
   }
-
-  async start() {
-    this.ioSocket.emit(SocketServerEvents.Initialize, this.room);
+  async start(peerId:string) {
+    utils.trace(`p2p:start` , peerId);
+    this.ioSocket.emit(SocketServerEvents.Initialize,peerId);
   }
-  // sockets area
-  sendMessageToServer(message: Object | string) {
-    console.log('Client sending message: ', message);
-    const msg = typeof message === 'object' ? _.set(message, 'channel', this.room) : {message, channel: this.room};
-    this.ioSocket.emit(SocketServerEvents.Message, msg);
+  async createMeeting(meeting) {
+    utils.trace(`p2p:createMeeting` , meeting);
+    this.ioSocket.emit(SocketServerEvents.CreateMeeting,meeting);
   }
   async getUserMedia(opts = {audio: false, video: true}) {
+    utils.trace(`p2p:getUserMedia` , opts);
     return navigator.mediaDevices.getUserMedia(opts);
   }
 
-  setupPeer(isInitiator: boolean) {
-    this.createPeerConnection();
-    if (this.localStream) {
-      this.connection.addStream(this.localStream);
-    }
-    this.isInitiator = isInitiator;
+  setupPeer(isInitiator: boolean, message: P2PSignalMessage) {
+    utils.trace(`p2p:setupPeer` , isInitiator , message);
+    this.addP2PConnection(message.connectionId, isInitiator, this.localStream);
   }
-  createPeerConnection(peerId?: string) {
-    const self = this;
-    this.connection = new RTCPeerConnection(null);
-    this.connection.onicecandidate = this.handleIceCandidate(self);
-    this.connection.onaddstream = this.handleRemoteStreamAdded(self);
-    this.connection.onremovestream = this.handleRemoteStreamRemoved(self);
-    this.createDataChannel();
-  }
-  createDataChannel(name: string = 'data') {
-    const self = this;
-    this.sendChannel = this.connection.createDataChannel(name, {
-      reliable: true,
-      negotiated: true,
-      id: 0
-    });
-    this.sendChannel.binaryType = 'arraybuffer';
-    this.sendChannel.onopen = this.handleChannelOpened(self);
-    this.sendChannel.onclose = this.handleChannelClosed(self);
-    this.sendChannel.onerror = this.handleChannelError(self);
-    this.sendChannel.onmessage = this.handleChannelMessage(self);
-  }
-  handleChannelOpened(self) {
-    return (event) => {
-      self.emit('handleChannelOpened', event);
-    };
-  }
-  handleChannelClosed(self) {
-    return (event) => {
-      self.emit('handleChannelClosed', event);
-    };
-  }
-  handleChannelError(self) {
-    return (event) => {
-      self.emit('handleChannelError', event);
-    };
-  }
-  handleChannelMessage(self) {
-    return (event) => {
-      if (typeof event.data === 'string') {
-        const message: P2PPackage = JSON.parse(event.data);
-        switch (message.type) {
-          case P2PPackageType.initTransfer:
-            self.emit('onTransferStart', {fileName: message.fileName, fileSize: message.fileSize});
 
-            break;
+  private createOffer(message: P2PSignalMessage) {
+    utils.trace(`p2p:createOffer`,message);
+     this.getP2PConnection(message.connectionId).createOffer();
+  }
 
-          case P2PPackageType.message:
-            self.emit('onMessageReceive', message.payload);
-            break;
-        }
-      } else {
-        self.emit('onTransferReceive', event.data);
-      }
-    };
+  private createAnswer(message: P2PSignalMessage) {
+    utils.trace(`p2p:createAnswer`,message);
+     this.getP2PConnection(message.connectionId).createAnswer(message);
   }
-  sendData(val) {
-    if (this.sendChannel.readyState === 'open') {
-      this.sendChannel.send(val);
-    }
+  private onAnswer(message: P2PSignalMessage) {
+    utils.trace(`p2p:onAnswer`,message);
+     this.getP2PConnection(message.connectionId).onAnswer(message);
   }
-  handleIceCandidate(self) {
-    return (event) => {
-      if (event.candidate) {
-        self.sendMessageToServer({
-          type: SignalSteps.Candidate,
-          label: event.candidate.sdpMLineIndex,
-          id: event.candidate.sdpMid,
-          candidate: event.candidate.candidate
+
+  private addIceCandidate(message: P2PSignalMessage) {
+    utils.trace(`p2p:addIceCandidate`,message);
+     this.getP2PConnection(message.connectionId).addIceCandidate(message);
+  }
+
+  terminate() {
+    utils.trace(`p2p:terminate`);
+    const self = this;
+    this.connectionDictionary.forEach((connection: Peer) => {
+      utils.trace(`p2p:terminate`, connection);
+      self.emit(P2PEvents.OnPeerRemoved, connection);
+      this.ioSocket.emit(SocketServerEvents.Message,
+        {type: SignalSteps.Terminate, 
+          connectionId: connection.connectionId
         });
-      } else {
-        console.log('End of candidates.');
-      }
-      self.emit('handleIceCandidate', event);
-    };
-  }
-
-  handleCreateOfferError(self) {
-    return (event) => {
-      self.emit('handleCreateOfferError', event);
-    };
-  }
-
-  callPeer() {
-    console.log('Sending offer to peer');
-    const self = this;
-    this.connection.createOffer(this.setLocalAndsendMessageToServer(self), this.handleCreateOfferError(self));
-  }
-
-  onOffer(offer) {
-    const self = this;
-    this.connection.setRemoteDescription(new RTCSessionDescription(offer));
-    this.connection.createAnswer().then(this.setLocalAndsendMessageToServer(self), this.onCreateSessionDescriptionError(self));
-  }
-
-  onAnswer(answer) {
-    this.connection.setRemoteDescription(new RTCSessionDescription(answer));
-  }
-
-  onIceCandidate(message) {
-    const candidate = new RTCIceCandidate({
-      sdpMLineIndex: message.label,
-      candidate: message.candidate
+      connection.stop();
     });
-    this.connection.addIceCandidate(candidate);
-  }
-  setLocalAndsendMessageToServer(self) {
-    return (sessionDescription) => {
-      sessionDescription.sdp = sessionDescription.sdp.replace('b=AS:30', 'b=AS:1638400'); // replacing for bigger messages
-      self.connection.setLocalDescription(sessionDescription);
-      self.sendMessageToServer(sessionDescription);
-    };
+    this.connectionDictionary.clear();
   }
 
-  onCreateSessionDescriptionError(self) {
-    return (event) => {
-      self.emit('onCreateSessionDescriptionError', event);
-    };
-  }
-
-  handleRemoteStreamAdded(self) {
-    return (event) => {
-      self.emit('handleRemoteStreamAdded', event);
-    };
-  }
-
-  handleRemoteStreamRemoved(self) {
-    return (event) => {
-      self.emit('handleRemoteStreamRemoved', event);
-    };
-  }
-
-  hangup(self) {
+  onTerminate(message: P2PSignalMessage) {
+    utils.trace(`p2p:onTerminate`, message);
     // @ts-ignore
-    stop(self);
-    self.sendMessageToServer({type: SignalSteps.Terminate});
-  }
-
-  handleRemoteHangup() {
-    // @ts-ignore
-    stop();
-    this.isInitiator = false;
-  }
-  // @ts-ignore
-  stop() {
-    this.connection.close();
-    this.connection = null;
+    this.emit(P2PEvents.OnPeerRemoved,  this.getP2PConnection(message.connectionId));
+    this.getP2PConnection(message.connectionId).stop();
+    this.connectionDictionary.delete(message.connectionId);
   }
 }

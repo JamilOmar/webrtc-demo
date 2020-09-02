@@ -1,20 +1,31 @@
-import { P2PPackage } from "./types";
-import iconv = require("iconv-lite");
+import {P2PPackage} from './types';
+import iconv = require('iconv-lite');
 // @ts-ignore
-export const subarray = (arr,start, end?) => {
-    debugger
-    if (!end) { end = -1; } 
-    return arr.slice(start, arr.length + 1 - (end * -1));
+export const subarray = (arr, start, end?) => {
+  debugger;
+  if (!end) {
+    end = -1;
+  }
+  return arr.slice(start, arr.length + 1 - end * -1);
 };
 const ENCODING = 'utf8';
 
-export const encode = (obj):Buffer =>{
-    return iconv.encode(JSON.stringify(obj) , ENCODING);
-}
+export const encode = (obj): Buffer => {
+  return iconv.encode(JSON.stringify(obj), ENCODING);
+};
 
+export const decode = (obj: Buffer) => {
+  const data = iconv.decode(obj, ENCODING);
+  if (data) return JSON.parse(data);
+  return null;
+};
 
-export const decode = (obj: Buffer) =>{
-const data = iconv.decode(obj,ENCODING);
-if( data) return JSON.parse(data);
-return null;
-}
+export const trace = (...params) => {
+  console.log(params);
+};
+
+export const isArrayBuffer = (value) => {
+  const hasArrayBuffer = typeof ArrayBuffer === 'function';
+  const {toString} = Object.prototype;
+  return hasArrayBuffer && (value instanceof ArrayBuffer || toString.call(value) === '[object ArrayBuffer]');
+};

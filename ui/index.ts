@@ -2,7 +2,7 @@
 import * as _ from 'lodash';
 import {EventEmitter} from 'events';
 import * as io from 'socket.io-client';
-import {SignalSteps, P2P, P2PPackage, P2PPackageType} from '../lib/';
+import {SignalSteps, P2P, P2PPackage, P2PPackageType, P2PEvents} from '../lib/';
 ////////////////////////////////////////////////////
 var localVideo = <HTMLVideoElement>document.querySelector('#localVideo');
 var remoteVideo = <HTMLVideoElement>document.querySelector('#remoteVideo');
@@ -20,11 +20,13 @@ var incomingFileData;
 var bytesReceived;
 
 const p2p = new P2P({});
+let peer;
 async function setup() {
   await p2p.setup();
   const stream = await p2p.getUserMedia();
   p2p.localStream = localVideo.srcObject = stream;
-  await p2p.start();
+  p2p.start('storage-client');
+  p2p.createMeeting('foo');
   return;
 }
 
@@ -33,13 +35,14 @@ setup().then(
   (error) => console.log
 );
 window.onbeforeunload = function () {
-  p2p.sendMessageToServer({type: SignalSteps.Terminate});
+  p2p.terminate();
 };
 sendInfo.onclick = () => {
-  p2p.sendData(msgInput.value);
+  peer.sendData(msgInput.value);
 };
 
 sendFile.onclick = async () => {
+
   if (fileInput.files.length > 0) {
     let file: File = fileInput.files[0];
     let currentChunk = 0;
@@ -50,47 +53,82 @@ sendFile.onclick = async () => {
       fileReader.readAsArrayBuffer(file.slice(start, end));
     };
     fileReader.onload = function () {
-      p2p.sendData(fileReader.result);
+      peer.sendData(fileReader.result);
       currentChunk++;
 
       if (BYTES_PER_CHUNK * currentChunk < file.size) {
         readNextChunk();
       }
     };
-    await p2p.sendData(
-      JSON.stringify({
+    await peer.sendData(
+     {
         fileSize: file.size,
         fileName: file.name,
         type: P2PPackageType.initTransfer
-      })
+      }
     );
 
     readNextChunk();
   }
 };
 
-p2p.on('onMessageReceive', (event) => {
-  console.log(event);
-});
-p2p.on('handleRemoteStreamAdded', (event) => {
-  remoteVideo.srcObject = p2p.remoteStream = event.stream;
-});
+p2p.on(P2PEvents.OnPeerAdded ,(p)=>{
+  peer = p;
+  setupPeer(peer)
+})
 
-p2p.on('onTransferStart', (info) => {
-  incomingFileInfo = info;
-  bytesReceived = 0;
-  incomingFileData = [];
-  console.log('File transfer started');
-});
-p2p.on('onTransferReceive', (data) => {
-  bytesReceived += data.byteLength;
-  incomingFileData.push(data);
-  if ((incomingFileInfo.fileSize == bytesReceived)) {
-    console.log('completed');
-    var blob = new window.Blob(incomingFileData);
-    downloadAnchor.href = URL.createObjectURL(blob);
-    downloadAnchor.download = incomingFileInfo.fileName;
-    downloadAnchor.textContent = `Click to download '${incomingFileInfo.fileName}' (${incomingFileInfo.fileSize} bytes)`;
-    downloadAnchor.style.display = 'block';
-  }
-});
+p2p.on(P2PEvents.OnPeerRemoved ,(p)=>{
+  peer = null;
+  remoteVideo.srcObject=null;
+})
+
+p2p.on(P2PEvents.OnListClients ,(clients)=>{
+  console.log(clients);
+})
+
+
+
+
+const setupPeer = function(p) {
+  p.on('onmessagereceive', (event) => {
+    console.log(event);
+  });
+  p.on('onaddstream', (event) => {
+    remoteVideo.srcObject = event.stream;
+  });
+  
+  p.on('ontransferstart', (info) => {
+    incomingFileInfo = info;
+    bytesReceived = 0;
+    incomingFileData = [];
+    console.log('File transfer started');
+  });
+  p.on('ontransferreceive', (data) => {
+    bytesReceived += data.byteLength;
+    incomingFileData.push(data);
+    if ((incomingFileInfo.fileSize == bytesReceived)) {
+      console.log('completed');
+      var blob = new window.Blob(incomingFileData);
+      downloadAnchor.href = URL.createObjectURL(blob);
+      downloadAnchor.download = incomingFileInfo.fileName;
+      downloadAnchor.textContent = `Click to download '${incomingFileInfo.fileName}' (${incomingFileInfo.fileSize} bytes)`;
+      downloadAnchor.style.display = 'block';
+    }
+  });
+
+}
+
+
+
+
+/**
+ * 
+ *     p2pConnection.on('onaddstream', (event) => this.emit('onaddstream' , event));
+    p2pConnection.on('onremovestream',(event) => this.emit('onremovestream' , event));
+    p2pConnection.on('onchannelopen',(event) => this.emit('onchannelopen' , event));
+    p2pConnection.on('onchannelclose',(event) => this.emit('onchannelclose' , event));
+    p2pConnection.on('onchannelerror', (event) => this.emit('onchannelerror' , event));
+    p2pConnection.on('ontransferstart', (event) => this.emit('ontransferstart' , event));
+    p2pConnection.on('onmessagereceive', (event) => this.emit('onmessagereceive' , event));
+    p2pConnection.on('ontransferreceive', (event) => this.emit('ontransferreceive' , event));
+ */

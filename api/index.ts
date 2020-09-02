@@ -13,18 +13,21 @@ const io = SocketIOServer(expressServer,{
     pingTimeout: 60000
 });
 
+
+const peerIds={};
+
 // Let's start managing connections...
 io.on('connection',  (socket) =>{
 
     // Handle 'message' messages
 socket.on(SocketServerEvents.Message, (message) => {
+  console.log(message)
     socket.broadcast.emit(SocketServerEvents.Message, message);
 });
 
 async function getSocketClients(room):Promise<{length:number}>{
    return await new Promise((resolve, reject) => {
         io.in(room).clients((error,clients)=>{
-            console.log(clients)
             if(error){
                 reject(error);
             }else{
@@ -33,53 +36,62 @@ async function getSocketClients(room):Promise<{length:number}>{
         })});
 }
 
-socket.on(SocketServerEvents.Initialize, async  (room) => {
+socket.on(SocketServerEvents.CreateMeeting, async  (room) => {
     const clients = await getSocketClients(room);
     const numClients = clients.length;
     // First client joining...
     if (numClients == 0){
         socket.join(room);
         socket.emit(SocketServerEvents.Message, {
-            type: SignalSteps.RequestorCreated
+            type: SignalSteps.RequestorCreated,
+            connectionId: room
           });
     } else if (numClients == 1) {       
         socket.join(room);
         socket.emit(
             SocketServerEvents.Message, {
-                type: SignalSteps.ResponderCreated
+                type: SignalSteps.ResponderCreated,
+                connectionId: room
               }
         );
         socket.to(room).emit(
             SocketServerEvents.Message, {
-                type: SignalSteps.ReadyToCall
+                type: SignalSteps.ReadyToCall,
+                connectionId: room
               }
         );
     } else { // max two clients
         socket.emit(SocketServerEvents.Message, {
-            type: SignalSteps.IsFull
+            type: SignalSteps.IsFull,
+            connectionId: room
           });
     }
 });
-
-socket.on('ipaddr', () => {
-    var ifaces = os.networkInterfaces();
-    for (var dev in ifaces) {
-      ifaces[dev].forEach((details) =>{
-        if (details.family === 'IPv4' && details.address !== '127.0.0.1') {
-          socket.emit('ipaddr', details.address);
-        }
-      });
-    }
-  });
-
-  socket.on(SignalSteps.Terminate, () =>{
+socket.on(SignalSteps.Terminate, () =>{
     console.log('received bye');
+    delete peerIds[socket['peerId']];  
+    socket.broadcast.emit('user left', {
+        peerId: socket['peerId'],
+        numUsers: Object.keys( peerIds)
+          });
+});
+
+
+socket.on(SocketServerEvents.Initialize, (peerId) =>{
+    socket['peerId'] = peerId;
+    if(!(peerId in peerIds)){
+        peerIds[peerId] = peerId;
+    }
+    io.emit(SocketServerEvents.Clients , peerIds);
   });
 
-function log(...params){
-    var array = ['Message from server:'];
-    array.push.apply(array, params);
-    console.log(array);
-    socket.emit('log', array);
-}
+socket.on(SocketServerEvents.Clients, () =>{
+    socket.emit(SocketServerEvents.Clients , peerIds);
+  });
+
 });
+
+
+
+
+
