@@ -4,6 +4,8 @@ import * as path from "path";
 import {Server, ServerOptions} from 'socket.io';
 import os = require('os');
 import SocketIOServer = require('socket.io');
+import { isIPv4 } from "net";
+import { Socket } from "dgram";
 const app = express();
 const port = 9000; // default port to listen
 const uiAppUrl = path.join(__dirname , '../../build');
@@ -35,6 +37,16 @@ async function getSocketClients(room):Promise<{length:number}>{
         })});
 }
 
+async function getSocketByConnectionId(peerId){
+    const allSockets = io.sockets.connected;
+    Object.keys(allSockets).forEach(key=>{
+        if(io.sockets.connected[key]['peerId'] === peerId){
+            return io.sockets.connected[key].id;
+        }
+    })
+    return null;
+}
+/*
 socket.on(SocketServerEvents.CreateMeeting, async  (room) => {
     const clients = await getSocketClients(room);
     const numClients = clients.length;
@@ -65,7 +77,41 @@ socket.on(SocketServerEvents.CreateMeeting, async  (room) => {
             connectionId: room
           });
     }
+});*/
+
+
+socket.on(SocketServerEvents.CreateMeeting, async  (meetingInfo) => {
+    const clients = await getSocketClients(room);
+    const numClients = clients.length;
+    // First client joining...
+    if (numClients == 0){
+        socket.join(room);
+        socket.emit(SocketServerEvents.Message, {
+            type: SignalSteps.RequestorCreated,
+            connectionId: room
+          });
+    } else if (numClients == 1) {       
+        socket.join(room);
+        socket.emit(
+            SocketServerEvents.Message, {
+                type: SignalSteps.ResponderCreated,
+                connectionId: room
+              }
+        );
+        socket.to(room).emit(
+            SocketServerEvents.Message, {
+                type: SignalSteps.ReadyToCall,
+                connectionId: room
+              }
+        );
+    } else { // max two clients
+        socket.emit(SocketServerEvents.Message, {
+            type: SignalSteps.IsFull,
+            connectionId: room
+          });
+    }
 });
+
 socket.on(SignalSteps.Terminate, () =>{
     console.log('received bye');
     delete peerIds[socket['peerId']];  
@@ -89,6 +135,9 @@ socket.on(SocketServerEvents.Clients, () =>{
   });
 
 });
+
+
+
 
 
 

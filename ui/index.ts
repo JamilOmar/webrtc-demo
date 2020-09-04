@@ -7,10 +7,10 @@ import {SignalSteps, P2P, P2PPackage, P2PPackageType, P2PEvents, PeerEvents} fro
 
 // HOST
 var pnlHost = <HTMLElement>document.querySelector('#pnlHost');
-var initiator = <HTMLInputElement>document.querySelector('#initiator');
-var consumer = <HTMLInputElement>document.querySelector('#consumer');
+var txtInitiator = <HTMLInputElement>document.querySelector('#txtInitiator');
+var txtConsumer = <HTMLInputElement>document.querySelector('#txtConsumer');
 var createRoom = <HTMLButtonElement>document.querySelector('#createRoom');
-
+var txtConnectedUsers = <HTMLInputElement>document.querySelector('#txtConnectedUsers');
 // SELECTION
 var pnlSelect = <HTMLElement>document.querySelector('#pnlSelect');
 var meetingHost = <HTMLButtonElement>document.querySelector('#meetingHost');
@@ -40,10 +40,17 @@ var bytesReceived;
 
 const p2p = new P2P({});
 let peer;
-async function setup(username) {
+async function setupChat(username) {
   await p2p.setup();
   const stream = await p2p.getUserMedia();
   p2p.localStream = localVideo.srcObject = stream;
+  p2p.start(username);
+  p2p.createMeeting('foo');
+  return;
+}
+
+async function setupMeeting(username) {
+  await p2p.setup();
   p2p.start(username);
   p2p.createMeeting('foo');
   return;
@@ -56,7 +63,7 @@ window.onbeforeunload = function () {
 connect.onclick = () => {
   pnlChatStart.style.visibility = 'visible';
   pnlChatSetup.style.visibility = 'hidden';
-  setup(txtUsername.value).then(
+  setupChat(txtUsername.value).then(
     (g) => {},
     (error) => console.log
   );
@@ -79,6 +86,14 @@ chatClient.onclick = () => {
 sendInfo.onclick = () => {
   peer.sendData(msgInput.value);
 };
+
+createRoom.onclick =() =>{
+
+  setupMeeting(txtUsername.value).then(
+    (g) => {},
+    (error) => console.log
+  );
+}
 
 sendFile.onclick = async () => {
   if (fileInput.files.length > 0) {
