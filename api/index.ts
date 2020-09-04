@@ -21,7 +21,6 @@ io.on('connection',  (socket) =>{
 
     // Handle 'message' messages
 socket.on(SocketServerEvents.Message, (message) => {
-  console.log(message)
     socket.broadcast.emit(SocketServerEvents.Message, message);
 });
 

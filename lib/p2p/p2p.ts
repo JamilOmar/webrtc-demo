@@ -51,16 +51,16 @@ export class P2P extends EventEmitter {
     utils.trace('p2p:addP2PConnection' , connectionId , isInitiator , localStream );
     const peer = new Peer(connectionId, isInitiator, localStream);
     const self = this;
-    peer.on('onicecandidate', (message) => {
+    peer.on(PeerEvents.OnIceCandidate, (message) => {
       message.type = SignalSteps.Candidate,
       utils.trace('p2p:onicecandidate' , message);
       self.ioSocket.emit(SocketServerEvents.Message,message);
     });
-    peer.on('oncreateanswer', (message) => {
+    peer.on(PeerEvents.OnCreateAnswer, (message) => {
       utils.trace('p2p:oncreateanswer' , message);
       self.ioSocket.emit(SocketServerEvents.Message,message);
     });
-    peer.on('oncreateoffer', (message) => {
+    peer.on(PeerEvents.OnCreateOffer, (message) => {
       utils.trace('p2p:oncreateoffer' , message);
       self.ioSocket.emit(SocketServerEvents.Message,message);
     });

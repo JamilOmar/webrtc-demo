@@ -2,9 +2,10 @@ import {EventEmitter} from 'events';
 import * as _ from 'lodash';
 import {P2PPackage, P2PPackageType} from './types';
 import * as utils from './utils';
+import { PeerEvents } from '../common';
 export class Peer extends EventEmitter {
     sendChannel: RTCDataChannel;
-    connection: RTCPeerConnection | any ;
+    connection: RTCPeerConnection | any  ;
     constructor(public connectionId: string | number, public isInitiator: boolean = false, public localStream?: MediaStream) {
       super();
       this.setupConnection();
@@ -20,10 +21,14 @@ export class Peer extends EventEmitter {
      utils.trace(`peer:setupConnection` ,rctPeerConnectionSettings);
       const self = this;
       this.connection = new RTCPeerConnection(rctPeerConnectionSettings);
+      this.connection.onconnectionstatechange = (event) =>{
+        utils.trace(`peer:onconnectionstatechange` ,event);
+        self.emit(PeerEvents.OnConnectionStateChange, event);
+      }
       this.connection.onicecandidate = (event) => {
         utils.trace(`peer:onicecandidate` ,event);
         if (event.candidate) {
-          self.emit('onicecandidate', {
+          self.emit(PeerEvents.OnIceCandidate, {
             label: event.candidate.sdpMLineIndex,
             id: event.candidate.sdpMid,
             candidate: event.candidate.candidate,
@@ -35,11 +40,11 @@ export class Peer extends EventEmitter {
       };
       this.connection.onaddstream = (event) => {
         utils.trace(`peer:onaddstream` ,event);
-        self.emit('onaddstream', event);
+        self.emit(PeerEvents.OnAddStream, event);
       };
       this.connection.onremovestream = (event) => {
         utils.trace(`peer:onremovestream` ,event);
-        self.emit('onremovestream', event);
+        self.emit(PeerEvents.OnRemoveStream, event);
       };
     }
   
@@ -62,15 +67,15 @@ export class Peer extends EventEmitter {
       this.sendChannel.binaryType = 'arraybuffer';
       this.sendChannel.onopen =  (event) => {
         utils.trace(`peer:onchannelopen` ,event);
-        self.emit('onchannelopen', event);
+        self.emit(PeerEvents.OnChannelOpen, event);
       };
       this.sendChannel.onclose = (event) => {
         utils.trace(`peer:onchannelclose` ,event);
-        self.emit('onchannelclose', event);
+        self.emit(PeerEvents.onChannelClose, event);
       };
       this.sendChannel.onerror =   (event) => {
         utils.trace(`peer:onchannelerror` ,event);
-        self.emit('onchannelerror', event);
+        self.emit(PeerEvents.onChannelError, event);
       };
       this.sendChannel.onmessage = (event) => {
         utils.trace(`peer:onmessage` ,event);
@@ -78,15 +83,15 @@ export class Peer extends EventEmitter {
           const message: P2PPackage = JSON.parse(event.data);
           switch (message.type) {
             case P2PPackageType.initTransfer:
-              self.emit('ontransferstart', {fileName: message.fileName, fileSize: message.fileSize});
+              self.emit(PeerEvents.OnTransferStart, {fileName: message.fileName, fileSize: message.fileSize});
               break;
             case P2PPackageType.message:
             default:
-              self.emit('onmessagereceive', message.payload);
+              self.emit(PeerEvents.OnMessageReceive, message.payload);
               break;
           }
         } else {
-          self.emit('ontransferreceive', event.data);
+          self.emit(PeerEvents.OnTransferReceive, event.data);
         }
       };
     }
@@ -125,7 +130,7 @@ export class Peer extends EventEmitter {
         utils.trace(`peer:createOffer` , sessionDescription);
         sessionDescription.sdp = sessionDescription.sdp.replace('b=AS:30', 'b=AS:1638400');
         self.connection.setLocalDescription(sessionDescription);
-        self.emit('oncreateoffer', { sdp: sessionDescription.sdp , type: sessionDescription.type , connectionId: self.connectionId });
+        self.emit(PeerEvents.OnCreateOffer, { sdp: sessionDescription.sdp , type: sessionDescription.type , connectionId: self.connectionId });
       },(err)=>{
         console.log(err)
       });
@@ -139,7 +144,7 @@ export class Peer extends EventEmitter {
         utils.trace(`peer:createAnswer` , sessionDescription);
         sessionDescription.sdp = sessionDescription.sdp.replace('b=AS:30', 'b=AS:1638400'); // replacing for bigger messages
         self.connection.setLocalDescription(sessionDescription);
-        self.emit('oncreateanswer',{ sdp: sessionDescription.sdp , type: sessionDescription.type , connectionId: self.connectionId });
+        self.emit(PeerEvents.OnCreateAnswer,{ sdp: sessionDescription.sdp , type: sessionDescription.type , connectionId: self.connectionId });
       },(err)=>{console.log(err)});
     }
   

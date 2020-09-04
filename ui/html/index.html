@@ -1,27 +1,55 @@
 <!doctype html>
 <html>
+
 <head>
   <meta charset="UTF-8">
   <title>ts-demo-webpack</title>
 </head>
-<body>
-        <h1>Realtime communication with WebRTC</h1>
 
-        <div id="videos">
-          <video id="localVideo" autoplay muted playsinline></video>       
-         <div> 
-            <input type = "text" id = "msgInput" /> 
-            <button id = "sendMsgBtn">Send text message</button> 
-            <input type="file" id="fileinput" />
-            <button id = "sendFile">Send File</button> 
-         </div> 
-          <video id="remoteVideo" autoplay playsinline></video>
-       
+<body>
+  <h1>Realtime communication with WebRTC</h1>
+
+
+  <h1>Create connection</h1>
+
+
+  <div id="pnlSelect">
+    <button id="chatClient">Is Chat Client</button>
+    <button id="meetingHost">Is Meeting Host</button>
+  </div>
+
+
+  <div id="pnlHost" style="visibility: hidden;">
+    Initiator:<input type="text" id="initiator" />
+    Consumer:<input type="text" id="consumer" />
+    Room: <input type="text" id="room" />
+    <button id="createRoom">Create Room</button>
+  </div>
+
+  <div id="pnlChat" style="visibility: hidden;">
+
+    <div id="pnlChatSetup" style="visibility: hidden;">
+      Username:<input type="text" id="txtUsername" />
+      <button id="connect">Connect</button>
+    </div>
+    <div id="pnlChatStart" style="visibility: hidden;">
+      <div id="videos">
+        <video id="localVideo" autoplay muted playsinline></video>
+        <div>
+          <input type="text" id="msgInput" />
+          <button id="sendMsgBtn">Send text message</button>
+          <input type="file" id="fileinput" />
+          <button id="sendFile">Send File</button>
         </div>
-        <a id="download"></a>
-      
+        <video id="remoteVideo" autoplay playsinline></video>
+
+      </div>
+      <a id="download"></a>
+    </div>
+  </div>
   <script src="https://webrtc.github.io/adapter/adapter-latest.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/2.1.1/socket.io.js"></script>
   <script src="main-bundle.js"></script>
 </body>
+
 </html>

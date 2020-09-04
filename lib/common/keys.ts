@@ -24,15 +24,18 @@ export const SocketServerEvents={
 
 export const PeerEvents={
     OnPeerAdded:'onpeeradded',
-    OnMessageReceive : 'onmessagerreceive',
+    OnMessageReceive : 'onmessagereceive',
     OnAddStream :'onaddstream',
     OnRemoveStream :'onremovestream',
     OnTransferStart : 'ontransferstart',
     OnTransferReceive : 'ontransferreceive',
     OnChannelOpen :'onchannelopen',
     onChannelClose : 'onchannelclose',
-    onChannelError : 'onChannelError',
-   
+    onChannelError : 'onchannelerror',
+    OnConnectionStateChange:"onconnectionstatechange",
+    OnCreateAnswer : 'oncreateanswer',
+    OnIceCandidate:'onicecandidate',
+    OnCreateOffer:'oncreateoffer'
 }
 
 
