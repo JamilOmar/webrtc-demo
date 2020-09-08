@@ -76,6 +76,18 @@ io.on('connection', (socket) => {
     });
   });
 
+ socket.on('read:path', async( message , fn) => {
+    console.log('read path');
+    const consumer = await getSocketByConnectionId(peerIds[message.consumerId]);
+    consumer.emit('read:path', message, (files) => {
+      if (files) {
+       socket.emit('read:path', {files});
+      }
+    });
+  });
+
+
+
   socket.on(SocketServerEvents.Initialize, (peerId) => {
     socket['peerId'] = peerId;
     peerIds[peerId] = socket.id;

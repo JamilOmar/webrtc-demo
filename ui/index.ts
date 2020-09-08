@@ -11,7 +11,9 @@ var txtInitiator = <HTMLInputElement>document.querySelector('#txtInitiator');
 var txtConsumer = <HTMLInputElement>document.querySelector('#txtConsumer');
 var txtRoom = <HTMLInputElement>document.querySelector('#txtRoom');
 var createRoom = <HTMLButtonElement>document.querySelector('#createRoom');
+var btnGetFiles = <HTMLButtonElement>document.querySelector('#btnGetFiles');
 var txtConnectedUsers = <HTMLInputElement>document.querySelector('#txtConnectedUsers');
+var txtFiles = <HTMLInputElement>document.querySelector('#txtFiles');
 // SELECTION
 var pnlSelect = <HTMLElement>document.querySelector('#pnlSelect');
 var meetingHost = <HTMLButtonElement>document.querySelector('#meetingHost');
@@ -94,10 +96,14 @@ sendInfo.onclick = () => {
 
 createRoom.onclick =() =>{
 
-  setupMeeting(txtUsername.value).then(
+  setupMeeting('host').then(
     (g) => {},
     (error) => console.log
   );
+}
+
+btnGetFiles.onclick =() =>{
+  p2p.ioSocket.emit('read:path', {consumerId : txtConsumer.value});
 }
 
 sendFile.onclick = async () => {
@@ -128,6 +134,10 @@ sendFile.onclick = async () => {
   }
 };
 
+p2p.ioSocket.on('read:path', (message) => {
+  txtFiles.value = JSON.stringify(message);
+});
+
 p2p.on(P2PEvents.OnPeerAdded, (p) => {
   peer = p;
   setupPeer(peer);
@@ -139,7 +149,7 @@ p2p.on(P2PEvents.OnPeerRemoved, (p) => {
 });
 
 p2p.on(P2PEvents.OnListClients, (clients) => {
-  console.log(clients);
+  txtConnectedUsers.value =  JSON.stringify(clients);
 });
 
 const setupPeer = function (p) {

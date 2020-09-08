@@ -1,8 +1,13 @@
-import {SignalSteps, P2P, P2PPackage, P2PPackageType, P2PEvents, PeerEvents, Peer} from '../lib/';
-const wrtc = require('wrtc');
-const repl = require('repl');
-const chalk = require('chalk');
+const vorpal = require('vorpal')().delimiter('storage$').show();
+import wrtc = require('wrtc');
+import * as fs from 'fs';
+import * as path from 'path';
+import {P2P, P2PEvents, PeerEvents, Peer, P2PSignalMessage} from '../lib/';
 let peer: Peer;
+const BYTES_PER_CHUNK = 1200;
+let incomingFileInfo;
+let incomingFileData;
+let bytesReceived;
 
 const p2p = new P2P({
   socketConfiguration: {
@@ -20,23 +25,35 @@ const p2p = new P2P({
   }
 });
 async function setup(username) {
+  setupEvents();
   await p2p.setup();
   p2p.connect(username);
-  return;
 }
 
-p2p.on(P2PEvents.OnPeerAdded, (p) => {
-  peer = p;
-  setupPeer(peer);
-});
+function setupEvents() {
+  p2p.ioSocket.on('read:path', (message, fn) => {
+    const directoryPath = path.join('../../', 'lib');
+    fs.readdir(directoryPath, function (err, files) {
+      if (err) {
+        return console.log('Unable to scan directory: ' + err);
+      }
+      console.log(files);
+      fn(files);
+    });
+  });
+  p2p.on(P2PEvents.OnPeerAdded, (p) => {
+    peer = p;
+    setupPeer(peer);
+  });
 
-p2p.on(P2PEvents.OnPeerRemoved, (p) => {
-  peer = null;
-});
+  p2p.on(P2PEvents.OnPeerRemoved, (p) => {
+    peer = null;
+  });
 
-p2p.on(P2PEvents.OnListClients, (clients) => {
-  console.log(clients);
-});
+  p2p.on(P2PEvents.OnListClients, (clients) => {
+    console.log(clients);
+  });
+}
 
 const setupPeer = function (p: Peer) {
   p.on(PeerEvents.OnConnectionStateChange, (event) => {
@@ -46,31 +63,38 @@ const setupPeer = function (p: Peer) {
     console.log(event);
   });
   p.on(PeerEvents.OnAddStream, (event) => {});
-  /*
-    p.on(PeerEvents.OnTransferStart, (info) => {
-      incomingFileInfo = info;
-      bytesReceived = 0;
-      incomingFileData = [];
-      console.log('File transfer started');
-    });
-    p.on(PeerEvents.OnTransferReceive, (data) => {
-      bytesReceived += data.byteLength;
-      incomingFileData.push(data);
-      if (incomingFileInfo.fileSize == bytesReceived) {
-        console.log('completed');
-        var blob = new window.Blob(incomingFileData);
-        downloadAnchor.href = URL.createObjectURL(blob);
-        downloadAnchor.download = incomingFileInfo.fileName;
-        downloadAnchor.textContent = `Click to download '${incomingFileInfo.fileName}' (${incomingFileInfo.fileSize} bytes)`;
-        downloadAnchor.style.display = 'block';
-      }
-    });
-    */
+
+  p.on(PeerEvents.OnTransferStart, (info) => {
+    incomingFileInfo = info;
+    bytesReceived = 0;
+    incomingFileData = [];
+    console.log('File transfer started');
+  });
+  p.on(PeerEvents.OnTransferReceive, (data) => {
+    bytesReceived += data.byteLength;
+    incomingFileData.push(data);
+    if (incomingFileInfo.fileSize == bytesReceived) {
+      let buffer = Buffer.from(incomingFileData);
+      console.log('completed');
+      fs.writeFileSync(path.join('../../files', incomingFileInfo.fileName), Uint8Array.from(buffer));
+    }
+  });
 };
 
-setup('jamil:cli').then(
-  (d) => {
-    console.log('connected');
-  },
-  (e) => console.error
-);
+vorpal.command('start', `will start a client`).action(function (args, callback) {
+  this.prompt(
+    {
+      type: 'input',
+      name: 'name',
+      message: `Set your client's name: `
+    },
+    function (result) {
+      setup(result.name).then(
+        (d) => {
+          callback();
+        },
+        (error) => callback(error)
+      );
+    }
+  );
+});
