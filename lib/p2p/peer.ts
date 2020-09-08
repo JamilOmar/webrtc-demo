@@ -1,14 +1,19 @@
 import {EventEmitter} from 'events';
 import * as _ from 'lodash';
-import {P2PPackage, P2PPackageType} from './types';
+import {P2PPackage, P2PPackageType, WebRTC, PeerConfiguration} from './types';
 import * as utils from './utils';
 import { PeerEvents } from '../common';
 export class Peer extends EventEmitter {
     sendChannel: RTCDataChannel;
     connection: RTCPeerConnection | any  ;
-    constructor(public connectionId: string | number, public isInitiator: boolean = false, public localStream?: MediaStream) {
+    wrtc : WebRTC;
+    constructor(
+        public config: PeerConfiguration = {},
+        public connectionId: string | number, 
+        public localStream?: MediaStream) {
       super();
-      this.setupConnection();
+      this.setWebRTC(config.wrtc);
+      this.setupConnection(config.rtcConfiguration);
       this.setupDataChannel();
       this.addStream(localStream);
     }
@@ -16,11 +21,12 @@ export class Peer extends EventEmitter {
       utils.trace(`peer:stop`);
       this.stopChannel();
       this.stopConnection();
+      this.removeAllListeners();
     }
-    private setupConnection(rctPeerConnectionSettings?: any) {
+    private setupConnection(rctPeerConnectionSettings: any) {
      utils.trace(`peer:setupConnection` ,rctPeerConnectionSettings);
       const self = this;
-      this.connection = new RTCPeerConnection(rctPeerConnectionSettings);
+      this.connection = new this.wrtc.RTCPeerConnection(rctPeerConnectionSettings);
       this.connection.onconnectionstatechange = (event) =>{
         utils.trace(`peer:onconnectionstatechange` ,event);
         self.emit(PeerEvents.OnConnectionStateChange, event);
@@ -139,7 +145,7 @@ export class Peer extends EventEmitter {
    createAnswer(offer){
     utils.trace(`peer:createAnswer` , offer);
       const self =this;
-      this.connection.setRemoteDescription(new RTCSessionDescription(offer));
+      this.connection.setRemoteDescription(new  this.wrtc.RTCSessionDescription(offer));
       this.connection.createAnswer((sessionDescription)=>{
         utils.trace(`peer:createAnswer` , sessionDescription);
         sessionDescription.sdp = sessionDescription.sdp.replace('b=AS:30', 'b=AS:1638400'); // replacing for bigger messages
@@ -150,16 +156,45 @@ export class Peer extends EventEmitter {
   
     onAnswer(offer) {
         utils.trace(`peer:onAnswer` , offer);
-      this.connection.setRemoteDescription(new RTCSessionDescription(offer));
+      this.connection.setRemoteDescription(new this.wrtc.RTCSessionDescription(offer));
     }
   
     addIceCandidate(message) {
         utils.trace(`peer:addIceCandidate` , message);
-        const candidate = new RTCIceCandidate({
+        const candidate = new this.wrtc.RTCIceCandidate({
         sdpMLineIndex: message.label,
         candidate: message.candidate
       });
       this.connection.addIceCandidate(candidate);
     }
+
+    setWebRTC(wrtc){
+        this.wrtc = (wrtc && typeof wrtc === 'object')
+        ? wrtc
+        : this.getBrowserRTC()
+      if (!this.wrtc) {
+        if (typeof window === 'undefined') {
+          throw new Error('No WebRTC support: Specify `opts.wrtc` option in this environment');
+        } else {
+          throw new Error('No WebRTC support: Not a supported browser');
+        }
+      }
+    }
+
+     getBrowserRTC () {
+        if (typeof window === 'undefined') return null
+        const webRTC = {
+          RTCPeerConnection: window.RTCPeerConnection || (window as any).mozRTCPeerConnection ||
+            window.webkitRTCPeerConnection,
+          RTCSessionDescription: window.RTCSessionDescription ||
+          (window as any).mozRTCSessionDescription || (window as any).webkitRTCSessionDescription,
+          RTCIceCandidate: window.RTCIceCandidate || (window as any).mozRTCIceCandidate ||
+          (window as any).webkitRTCIceCandidate
+        }
+        if (!webRTC.RTCPeerConnection) return null
+        return webRTC
+      }
+
+
   }
   

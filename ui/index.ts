@@ -9,6 +9,7 @@ import {SignalSteps, P2P, P2PPackage, P2PPackageType, P2PEvents, PeerEvents} fro
 var pnlHost = <HTMLElement>document.querySelector('#pnlHost');
 var txtInitiator = <HTMLInputElement>document.querySelector('#txtInitiator');
 var txtConsumer = <HTMLInputElement>document.querySelector('#txtConsumer');
+var txtRoom = <HTMLInputElement>document.querySelector('#txtRoom');
 var createRoom = <HTMLButtonElement>document.querySelector('#createRoom');
 var txtConnectedUsers = <HTMLInputElement>document.querySelector('#txtConnectedUsers');
 // SELECTION
@@ -44,15 +45,19 @@ async function setupChat(username) {
   await p2p.setup();
   const stream = await p2p.getUserMedia();
   p2p.localStream = localVideo.srcObject = stream;
-  p2p.start(username);
-  p2p.createMeeting('foo');
+  p2p.connect(username);
+
   return;
 }
 
 async function setupMeeting(username) {
   await p2p.setup();
-  p2p.start(username);
-  p2p.createMeeting('foo');
+  p2p.connect(username);
+  p2p.createMeeting({
+    initiatorId : txtInitiator.value,
+    consumerId : txtConsumer.value,
+    sessionId : txtRoom.value
+  });
   return;
 }
 

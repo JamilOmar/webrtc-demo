@@ -1,145 +1,89 @@
-import express from "express";
-import {SignalSteps ,SocketServerEvents} from '../lib/';
-import * as path from "path";
-import {Server, ServerOptions} from 'socket.io';
+import express from 'express';
+import {SignalSteps, SocketServerEvents, P2PMeetingMessage} from '../lib/';
+import * as path from 'path';
 import os = require('os');
 import SocketIOServer = require('socket.io');
-import { isIPv4 } from "net";
-import { Socket } from "dgram";
 const app = express();
 const port = 9000; // default port to listen
-const uiAppUrl = path.join(__dirname , '../../build');
+const uiAppUrl = path.join(__dirname, '../../build');
 app.use(express.static(uiAppUrl));
 const expressServer = app.listen(port);
-const io = SocketIOServer(expressServer,{
-    pingTimeout: 60000
+const io = SocketIOServer(expressServer, {
+  pingTimeout: 60000
 });
 
-
-const peerIds={};
+const peerIds = {};
 
 // Let's start managing connections...
-io.on('connection',  (socket) =>{
-
-    // Handle 'message' messages
-socket.on(SocketServerEvents.Message, (message) => {
+io.on('connection', (socket) => {
+  // Handle 'message' messages
+  socket.on(SocketServerEvents.Message, (message) => {
     socket.broadcast.emit(SocketServerEvents.Message, message);
-});
+  });
 
-async function getSocketClients(room):Promise<{length:number}>{
-   return await new Promise((resolve, reject) => {
-        io.in(room).clients((error,clients)=>{
-            if(error){
-                reject(error);
-            }else{
-                resolve(clients);
-            }
-        })});
-}
-
-async function getSocketByConnectionId(peerId){
-    const allSockets = io.sockets.connected;
-    Object.keys(allSockets).forEach(key=>{
-        if(io.sockets.connected[key]['peerId'] === peerId){
-            return io.sockets.connected[key].id;
+  async function getSocketClients(room): Promise<{length: number}> {
+    return await new Promise((resolve, reject) => {
+      io.in(room).clients((error, clients) => {
+        if (error) {
+          reject(error);
+        } else {
+          resolve(clients);
         }
-    })
-    return null;
-}
-/*
-socket.on(SocketServerEvents.CreateMeeting, async  (room) => {
-    const clients = await getSocketClients(room);
-    const numClients = clients.length;
-    // First client joining...
-    if (numClients == 0){
-        socket.join(room);
-        socket.emit(SocketServerEvents.Message, {
-            type: SignalSteps.RequestorCreated,
-            connectionId: room
-          });
-    } else if (numClients == 1) {       
-        socket.join(room);
-        socket.emit(
-            SocketServerEvents.Message, {
-                type: SignalSteps.ResponderCreated,
-                connectionId: room
-              }
-        );
-        socket.to(room).emit(
-            SocketServerEvents.Message, {
-                type: SignalSteps.ReadyToCall,
-                connectionId: room
-              }
-        );
-    } else { // max two clients
-        socket.emit(SocketServerEvents.Message, {
-            type: SignalSteps.IsFull,
-            connectionId: room
-          });
-    }
-});*/
+      });
+    });
+  }
 
+  async function getSocketByConnectionId(socketId) {
+    return io.sockets.connected[socketId];
+  }
+  async function sendMessageToClientWithAck(socket, sessionId, action, data) {
+    return await new Promise((resolve, reject) => {
+      socket.join(sessionId);
+      socket.emit(action, data, (initiated) => {
+        if (initiated) {
+          resolve();
+        } else {
+          reject();
+        }
+      });
+    });
+  }
 
-socket.on(SocketServerEvents.CreateMeeting, async  (meetingInfo) => {
-    const clients = await getSocketClients(room);
-    const numClients = clients.length;
-    // First client joining...
-    if (numClients == 0){
-        socket.join(room);
-        socket.emit(SocketServerEvents.Message, {
-            type: SignalSteps.RequestorCreated,
-            connectionId: room
-          });
-    } else if (numClients == 1) {       
-        socket.join(room);
-        socket.emit(
-            SocketServerEvents.Message, {
-                type: SignalSteps.ResponderCreated,
-                connectionId: room
-              }
-        );
-        socket.to(room).emit(
-            SocketServerEvents.Message, {
-                type: SignalSteps.ReadyToCall,
-                connectionId: room
-              }
-        );
-    } else { // max two clients
-        socket.emit(SocketServerEvents.Message, {
-            type: SignalSteps.IsFull,
-            connectionId: room
-          });
-    }
-});
+  socket.on(SocketServerEvents.CreateMeeting, async (meetingInfo: P2PMeetingMessage) => {
+    const initiator = await getSocketByConnectionId(peerIds[meetingInfo.initiatorId]);
+    const consumer = await getSocketByConnectionId(peerIds[meetingInfo.consumerId]);
+    await sendMessageToClientWithAck(consumer, meetingInfo.sessionId, SocketServerEvents.Message, {
+      type: SignalSteps.Setup,
+      connectionId: meetingInfo.sessionId
+    });
+    await sendMessageToClientWithAck(initiator, meetingInfo.sessionId, SocketServerEvents.Message, {
+      type: SignalSteps.Setup,
+      connectionId: meetingInfo.sessionId
+    });
 
-socket.on(SignalSteps.Terminate, () =>{
+    await sendMessageToClientWithAck(initiator, meetingInfo.sessionId, SocketServerEvents.Message, {
+      type: SignalSteps.ReadyToCall,
+      connectionId: meetingInfo.sessionId
+    });
+  });
+
+  socket.on(SignalSteps.Terminate, () => {
     console.log('received bye');
-    delete peerIds[socket['peerId']];  
+    delete peerIds[socket['peerId']];
     socket.broadcast.emit('user left', {
-        peerId: socket['peerId'],
-        numUsers: Object.keys( peerIds)
-          });
-});
+      peerId: socket['peerId'],
+      numUsers: Object.keys(peerIds)
+    });
+  });
 
-
-socket.on(SocketServerEvents.Initialize, (peerId) =>{
+  socket.on(SocketServerEvents.Initialize, (peerId) => {
     socket['peerId'] = peerId;
-    if(!(peerId in peerIds)){
-        peerIds[peerId] = peerId;
-    }
-    io.emit(SocketServerEvents.Clients , peerIds);
+    peerIds[peerId] = socket.id;
+    console.log(peerIds);
+    io.emit(SocketServerEvents.Clients, peerIds);
   });
 
-socket.on(SocketServerEvents.Clients, () =>{
-    socket.emit(SocketServerEvents.Clients , peerIds);
+  socket.on(SocketServerEvents.Clients, () => {
+    socket.emit(SocketServerEvents.Clients, peerIds);
   });
-
 });
-
-
-
-
-
-
-
-
