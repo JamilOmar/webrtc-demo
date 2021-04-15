@@ -1,0 +1,12 @@
+{
+    "name": "webrtc-demo",
+    "script": "npm",
+    "args" : "run start:dev",
+    "log_file": "./webrtc-demo.log",
+    "env": {
+      "NODE_ENV": "development"
+    },
+    "env_production" : {
+      "NODE_ENV": "production"
+    }
+  }
