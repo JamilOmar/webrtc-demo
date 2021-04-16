@@ -8,4 +8,4 @@ RUN npm -g config set user root
 RUN npm install typescript -g
 RUN npm run build
 ENTRYPOINT [ "pm2-runtime", "start", "pm2.json" ]
-EXPOSE 8000
+EXPOSE 80

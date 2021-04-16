@@ -4,7 +4,7 @@ import * as path from 'path';
 import os = require('os');
 import SocketIOServer = require('socket.io');
 const app = express();
-const port = 8000; // default port to listen
+const port = 80; // default port to listen
 const uiAppUrl = path.join(__dirname, '../../build');
 app.use(express.static(uiAppUrl));
 const expressServer = app.listen(port);
