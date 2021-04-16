@@ -4,14 +4,13 @@
   "description": "",
   "scripts": {
     "build": "npm run tsc",
-    "postinstall":"tsc",
     "webpack": "webpack",
     "pretest": "npm run build",
     "test": "mocha --allow-console-logs",
     "tsc": "tsc",
     "start:server": "node ./dist/api/index.js",
     "start:cli": "node ./dist/cli/index.js",
-    "start": "npm run webpack && npm run start:server",
+    "start": "npm run build && npm run webpack && npm run start:server",
     "dev": "nodemon"
   },
   "author": "",
