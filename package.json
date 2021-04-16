@@ -9,7 +9,7 @@
     "test": "mocha --allow-console-logs",
     "start:server": "node ./dist/api/index.js",
     "start:cli": "node ./dist/cli/index.js",
-    "start:dev": "npm run build && npm run webpack && npm run start:server",
+    "start": "npm run build && npm run webpack && npm run start:server",
     "dev": "nodemon"
   },
   "author": "",
