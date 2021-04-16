@@ -45,7 +45,7 @@ const p2p = new P2P({});
 let peer;
 async function setupChat(username) {
   await p2p.setup();
-  const stream = await p2p.getUserMedia();
+  const stream = await p2p.getUserMedia({audio: true, video: true});
   p2p.localStream = localVideo.srcObject = stream;
   p2p.connect(username);
 
